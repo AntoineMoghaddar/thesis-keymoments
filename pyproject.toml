@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thesis-keymoments"
+version = "0.1.0"
+description = "Detection of coaching-relevant moments in ACC telemetry (MSc thesis, University of Twente)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pyarrow>=15",
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "xgboost>=2.0",
+    "pyyaml>=6",
+    "streamlit>=1.50",
+    "plotly>=5.20",
+]
+
+[project.optional-dependencies]
+seq = ["torch>=2.2"]
+dev = ["pytest>=8", "ruff>=0.5", "pyinstaller>=6"]
+
+[project.scripts]
+km = "km.cli:main"
+km-logger = "logger.app:main"
+
+[tool.setuptools]
+packages = ["km", "logger", "review_app"]
+
+[tool.ruff]
+line-length = 125
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]   # long lines are mostly interface texts in two languages
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

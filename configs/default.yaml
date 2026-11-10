@@ -1,0 +1,91 @@
+# Central configuration. Every value used in an experiment is read from here,
+# so that the thesis can report exactly what was run.
+
+data_dir: data            # raw/, participants/, prepared/, review/ live below this folder
+results_dir: results
+
+study:
+  car_model: amr_v8_vantage_gt3   # expected ACC car id; the logger warns when another car is driven
+  circuits: [monza, hungaroring]  # expected ACC track ids
+  sessions_per_circuit: 3
+  laps_per_session: 15
+  experience_levels: [none, moderate, high]
+
+logger:
+  hz: 60                  # polling frequency of the shared memory
+  flush_seconds: 10       # data are flushed to disk at this interval, so a crash loses little
+
+preprocess:
+  grid_points: 2000       # samples per lap after resampling on track position
+  max_gap_s: 0.25         # a lap with a larger gap between samples is dropped
+  warmup_laps: 2          # first laps of every session that are removed
+
+segments:
+  brake_threshold: 0.05   # brake input above which a braking zone starts
+  steer_threshold: 0.08   # |steering input| above which the car counts as cornering
+  margin: 0.004           # share of the lap added before and after a detected corner
+  min_length: 0.008       # shorter activity is ignored
+  merge_gap: 0.006        # corners closer than this are merged
+
+features:
+  brake_on: 0.05
+  gas_on: 0.20
+  gas_full: 0.95
+  dtw_points: 32
+  lookaround: 0.015       # share of the lap searched before and after a corner for early braking and late throttle
+
+windows:
+  include_straights: true
+
+labelling:
+  fit_on: all             # all = thresholds from all windows, train = from the training drivers of a fold
+  min_time_loss_s: 0.03   # K1 to K6 only fire when the segment was slower than on the reference lap
+  # Percentile of the per-segment distribution above which a labelling function fires,
+  # combined with an absolute floor that prevents labels on measurement noise.
+  # These values are starting points and have to be set on the collected data.
+  K1: {percentile: 85, floor_m: 5.0}
+  K2: {percentile: 85, floor_peak: 0.10}
+  K3: {percentile: 85, floor_kmh: 3.0}
+  K4: {percentile: 85, floor_m: 5.0}
+  K5: {percentile: 90}
+  K6: {percentile: 90}
+  K7: {percentile: 97, floor_s: 0.5, tyres_out: 3}
+  K8: {ratio: 1.5}
+  # When several functions fire, the primary type is the first in this order
+  # (entry, middle, exit, whole corner, any).
+  priority: [K1, K2, K3, K4, K5, K6, K7, K8]
+
+model:
+  xgb:
+    n_estimators: 300
+    max_depth: 4
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+  seq:
+    length: 64
+    hidden: 32
+    epochs: 30
+    lr: 0.003
+    batch_size: 256
+
+evaluation:
+  scheme: lodo            # lodo = leave-one-driver-out, fixed = fixed test drivers
+  fixed_test_drivers: []  # used when scheme is "fixed", e.g. [D03, D05, D08]
+  budgets: [1, 2, 3, 4, 5]  # candidate values for B (moments shown per session)
+  bootstrap: 1000
+  seeds: [0, 1, 2, 3, 4]
+  train_fractions: [0.10, 0.25, 0.50, 0.75, 1.0]
+  laps_per_driver: [5, 10, 20, null]   # null = all laps
+
+  sq3_models: [xgb]       # add seq to repeat the data requirement runs with the sequence model
+  review_steps: [0, 25, 50, 100, 200]   # expert labels added to the weak labels (SQ3, label quality)
+
+review:
+  n_experts: 6
+  per_expert: 60          # windows shown to each expert
+  shared: 20              # of which reviewed by every expert
+  budget: 3               # B used to decide which windows count as selected by the model and the baseline
+  mix: {model: 0.4, baseline: 0.3, neither: 0.3}
+  trace_points: 240       # samples per plotted trace
+  context: 0.35           # track shown before and after the segment, as a share of its length

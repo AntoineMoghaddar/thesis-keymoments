@@ -1,0 +1,9 @@
+# Copy to configs/local.yaml (not tracked by git) and pass it with: km --config configs/local.yaml <command>
+# data_dir is the project folder on the storage of the University of Twente.
+data_dir: "P:/thesis-keymoments/data"
+results_dir: "P:/thesis-keymoments/results"
+
+# Example: a fixed test set of one driver per experience level instead of leave-one-driver-out.
+# evaluation:
+#   scheme: fixed
+#   fixed_test_drivers: [D03, D05, D08]

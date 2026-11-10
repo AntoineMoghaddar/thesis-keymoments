@@ -1,0 +1,18 @@
+# Data never goes into the repository (personal data, UT storage only)
+data/
+*.parquet
+*.db
+*.sqlite
+results/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.spec
+.DS_Store
+configs/local.yaml
+configs/segments/synth_*.yaml
+*.egg-info/
