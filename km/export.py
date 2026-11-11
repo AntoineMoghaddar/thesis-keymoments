@@ -4,6 +4,9 @@ The public copy carries new, random identifiers. The table that links them to th
 used during the study is written to a separate key file, which belongs on the storage of the
 university only. Without that file the public data cannot be traced back to a recording visit.
 
+Only drivers whose participant file records consent for publication are included, and experts
+named in export.exclude_experts are left out.
+
 Left out of the public copy: dates and times, the questionnaire (unless items are named in the
 configuration), all free text, and anything recorded in demo mode.
 """
@@ -49,8 +52,15 @@ def export_dataset(cfg: dict, out_dir: str | Path, key_path: str | Path, seed: i
         raise ValueError(f"The output folder is not empty: {out}")
     rng = np.random.default_rng(seed)
     sessions = [m for m in list_sessions(paths.raw) if not m.get("demo")]
+
+    # Publication needs the separate consent that is recorded per participant by the logger.
+    def consented(driver: str) -> bool:
+        path = paths.participants / f"{driver}.json"
+        return path.exists() and bool(json.loads(path.read_text(encoding="utf-8")).get("publication_consent"))
+    left_out = sorted({m["driver"] for m in sessions if not consented(m["driver"])})
+    sessions = [m for m in sessions if m["driver"] not in left_out]
     if not sessions:
-        raise RuntimeError("No sessions to export.")
+        raise RuntimeError("No sessions to export: no driver has consent for publication on record.")
 
     # New identifiers in random order, so that the order of recruitment cannot be read from them.
     drivers = sorted({m["driver"] for m in sessions})
@@ -125,6 +135,7 @@ def export_dataset(cfg: dict, out_dir: str | Path, key_path: str | Path, seed: i
         from .review import load_responses
         resp = load_responses(paths.review)
         if len(resp):
+            resp = resp[~resp["expert_id"].isin(cfg["export"].get("exclude_experts", []))]
             experts = sorted(resp["expert_id"].unique())
             expert_map = {e: f"X{k + 1:02d}" for k, e in enumerate(rng.permutation(experts))}
             key_rows += [dict(kind="expert", public_id=v, internal_id=k) for k, v in expert_map.items()]
@@ -147,7 +158,7 @@ def export_dataset(cfg: dict, out_dir: str | Path, key_path: str | Path, seed: i
     key_path.parent.mkdir(parents=True, exist_ok=True)
     key_rows += [dict(kind="driver", public_id=v, internal_id=k, pseudonym=k) for k, v in driver_map.items()]
     pd.DataFrame(key_rows).to_csv(key_path, index=False)
-    return {"drivers": len(drivers), "sessions": len(sessions), "files": len(files) + 1, "out": str(out), "key": str(key_path)}
+    return {"drivers": len(drivers), "left_out_without_consent": left_out, "sessions": len(sessions), "files": len(files) + 1, "out": str(out), "key": str(key_path)}
 
 
 def _datasheet(out: Path, cfg: dict, n_drivers: int, n_sessions: int) -> None:
@@ -169,7 +180,7 @@ Licence: {cfg['export']['licence']}
 | `derived/laps.parquet` | The laps used in the analysis, with lap time and the reference lap per driver and circuit |
 | `derived/windows.parquet` | One row per lap and track segment with the engineered features |
 | `derived/weak_labels.parquet` | Votes of the labelling functions and the resulting weak labels |
-| `derived/expert_labels.parquet` | Reference labels from the expert review, where available |
+| `derived/expert_labels.parquet` | Reference labels from the expert review (majority of the panel), where available |
 | `derived/expert_responses.parquet` | Individual expert judgements, without comments |
 | `segments/<circuit>.yaml` | Track segments as shares of the lap |
 | `SHA256SUMS` | Checksums of all files |

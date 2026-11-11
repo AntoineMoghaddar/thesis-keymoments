@@ -224,7 +224,8 @@ def generate(data_dir: str | Path, drivers_per_level: int = 2, circuits=("synth_
             k += 1
             driver = f"D{k:02d}"
             (data_dir / "participants" / f"{driver}.json").write_text(
-                json.dumps({"driver": driver, "experience_level": level, "synthetic": True}, indent=2),
+                json.dumps({"driver": driver, "experience_level": level, "synthetic": True,
+                            "publication_consent": True}, indent=2),
                 encoding="utf-8")
             for circuit in circuits:
                 track = make_track(circuit)

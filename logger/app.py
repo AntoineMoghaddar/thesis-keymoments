@@ -125,6 +125,7 @@ class LoggerApp:
         self.driver = tk.StringVar()
         self.level = tk.StringVar()
         self.consent = tk.BooleanVar(value=False)
+        self.publication = tk.BooleanVar(value=False)
         self.circuit = tk.StringVar(value=self.cfg["study"]["circuits"][0])
         self.number = tk.IntVar(value=1)
         self.demo = tk.BooleanVar(value=False)
@@ -172,8 +173,10 @@ class LoggerApp:
         self.level_box.bind("<<ComboboxSelected>>", lambda e: self.set_level())
         ttk.Checkbutton(box, text=tr("consent", lang), variable=self.consent, command=self.save_participant).grid(
             row=2, column=0, columnspan=2, sticky="w")
-        ttk.Button(box, text=tr("q_open", lang), command=self.open_questionnaire).grid(row=3, column=0, sticky="w", pady=(6, 0))
-        ttk.Label(box, textvariable=self.status_vars["q"]).grid(row=3, column=1, sticky="w", padx=8, pady=(6, 0))
+        ttk.Checkbutton(box, text=tr("publication", lang), variable=self.publication, command=self.save_participant).grid(
+            row=3, column=0, columnspan=2, sticky="w")
+        ttk.Button(box, text=tr("q_open", lang), command=self.open_questionnaire).grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(box, textvariable=self.status_vars["q"]).grid(row=4, column=1, sticky="w", padx=8, pady=(6, 0))
 
         box = ttk.LabelFrame(main, text=tr("session", lang), padding=10)
         box.pack(fill="x", pady=8)
@@ -241,6 +244,8 @@ class LoggerApp:
         if driver and "consent_signed" in record:
             self.consent.set(bool(record["consent_signed"]))
         if driver:
+            self.publication.set(bool(record.get("publication_consent", False)))
+        if driver:
             folder = Path(self.data_dir.get()) / "raw" / driver / self.circuit.get()
             self.number.set(len(list(folder.glob("*.parquet"))) + 1 if folder.exists() else 1)
 
@@ -252,7 +257,7 @@ class LoggerApp:
     def save_participant(self) -> None:
         driver = self.pseudonym()
         if driver:
-            fields = {"consent_signed": bool(self.consent.get())}
+            fields = {"consent_signed": bool(self.consent.get()), "publication_consent": bool(self.publication.get())}
             if self.level.get() in LEVELS:
                 fields["experience_level"] = self.level.get()
             qn.save_participant(self.data_dir.get(), driver, **fields)

@@ -174,7 +174,8 @@ are settings in `configs/default.yaml`.
 judgements with newly assigned random identifiers for drivers, sessions and experts. Dates, times, the
 questionnaire and all free text are left out. The key file links the public identifiers to the study
 pseudonyms. It has to be stored on the university storage, and the command refuses to write it inside the
-public folder. Questionnaire items can be added to the public copy through `export.questionnaire_items`;
+public folder. Only drivers for whom the logger records consent for publication (the optional item on the
+consent form) are exported; experts without that consent are listed in `export.exclude_experts`. Questionnaire items can be added to the public copy through `export.questionnaire_items`;
 check for each item whether it could single out a person in a group of six to nine drivers.
 
 ## Review tool
