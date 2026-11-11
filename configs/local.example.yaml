@@ -2,6 +2,8 @@
 # data_dir is the project folder on the storage of the University of Twente.
 data_dir: "P:/thesis-keymoments/data"
 results_dir: "P:/thesis-keymoments/results"
+# The register holds names and contact details. Keep it in a separate folder with access for you only.
+register_dir: "P:/thesis-keymoments-register"
 
 # Example: a fixed test set of one driver per experience level instead of leave-one-driver-out.
 # evaluation:

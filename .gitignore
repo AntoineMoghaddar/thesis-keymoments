@@ -16,3 +16,4 @@ dist/
 configs/local.yaml
 configs/segments/synth_*.yaml
 *.egg-info/
+register/
