@@ -137,8 +137,10 @@ are settings in `configs/default.yaml`.
   first in `labelling.priority` avoids this.
 - **K8.** Fires for windows of a segment whose times vary at least 1.5 times as much within a session as the
   median segment of that driver, and only for the laps that were slower than the session median.
-- **Thresholds and unseen drivers.** With `labelling.fit_on: train` the thresholds are fitted on the
-  training drivers of each fold only.
+- **Thresholds and unseen drivers.** The thresholds are fitted on the training drivers of each fold only
+  (`labelling.fit_on: train`), so that a held-out driver is evaluated as a new driver would be.
+- **Order of the expert tasks.** The review tool only opens the single segments after the session task
+  has been completed.
 - **Evaluation target.** Expert labels where they exist, weak labels otherwise. Results against weak labels
   are marked as provisional in `sq2_summary.json`, because the labelling functions score perfectly against
   their own output.

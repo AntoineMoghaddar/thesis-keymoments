@@ -17,6 +17,8 @@ T = {
     "sess_intro": {
         "en": "You see one complete session of one driver: every corner of every lap, compared with the reference lap. Choose at most {b} corners that you would discuss with this driver, the most important one first, and say for each which type of moment it is. If you would discuss nothing, save without choosing a corner.",
         "nl": "Je ziet een volledige sessie van een coureur: elke bocht van elke ronde, vergeleken met de referentieronde. Kies maximaal {b} bochten die je met deze coureur zou bespreken, de belangrijkste eerst, en geef per bocht aan om welk type moment het gaat. Als je niets zou bespreken, sla dan op zonder een bocht te kiezen."},
+    "sessions_first": {"en": "Please complete the sessions first (menu: Sessions). The single segments follow after that.",
+                       "nl": "Rond eerst de sessies af (menu: Sessies). Daarna volgen de losse segmenten."},
     "sess_progress": {"en": "Session {i} of {n}", "nl": "Sessie {i} van {n}"},
     "sess_heat": {"en": "Time lost per corner and lap (s, corner plus the straight after it)",
                   "nl": "Tijdverlies per bocht en ronde (s, bocht plus het rechte stuk erna)"},

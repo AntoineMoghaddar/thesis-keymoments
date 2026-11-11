@@ -41,7 +41,7 @@ windows:
 labelling:
   aggregation: any        # any = key moment when a function fires, label_model = learned reliability per function
   type_rule: priority     # priority = order below, strongest = the function that exceeds its threshold by most
-  fit_on: all             # all = thresholds from all windows, train = from the training drivers of a fold
+  fit_on: train           # train = thresholds from the training drivers of a fold, all = from all windows
   min_time_loss_s: 0.03   # K1 to K6 only fire when the segment was slower than on the reference lap
   # Percentile of the per-segment distribution above which a labelling function fires,
   # combined with an absolute floor that prevents labels on measurement noise.
@@ -81,6 +81,7 @@ evaluation:
   seeds: [0, 1, 2, 3, 4]
   train_fractions: [0.10, 0.25, 0.50, 0.75, 1.0]
   laps_per_driver: [5, 10, 20, null]   # null = all laps
+  laps_selection: random  # random = randomly drawn laps of a driver, first = the first laps that were driven
 
   sq3_models: [xgb]       # add seq to repeat the data requirement runs with the sequence model
   review_steps: [0, 25, 50, 100, 200]   # expert labels added to the weak labels (SQ3, label quality)
