@@ -199,7 +199,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 28 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 27 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.
