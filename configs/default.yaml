@@ -3,6 +3,7 @@
 
 data_dir: data            # raw/, participants/, prepared/, review/ live below this folder
 results_dir: results
+register_dir: register    # names and contact details; university storage only, never inside data_dir
 
 study:
   car_model: amr_v8_vantage_gt3   # expected ACC car id; the logger warns when another car is driven

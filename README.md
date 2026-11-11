@@ -11,6 +11,7 @@ The repository contains everything between the simulator and the results tables:
 | Pipeline | `km/` | Lap selection, resampling, track segmentation, features, labelling functions K1 to K8, models, evaluation, advice text |
 | Review tool | `review_app/` | Web page on which experts judge segments blind, with a personal access code |
 | Configuration | `configs/` | All thresholds and experiment settings in one YAML file |
+| Participant register | `register_app/` | For the researcher: participants, consent, planning and progress, kept apart from the research data |
 | Tests | `tests/` | Run on synthetic telemetry, no simulator needed |
 
 The logger and the review tool are available in Dutch and English.
@@ -178,6 +179,20 @@ public folder. Only drivers for whom the logger records consent for publication 
 consent form) are exported; experts without that consent are listed in `export.exclude_experts`. Questionnaire items can be added to the public copy through `export.questionnaire_items`;
 check for each item whether it could single out a person in a group of six to nine drivers.
 
+## Participant register
+
+`streamlit run register_app/app.py` opens the register for the researcher: who takes part, under which
+pseudonym, through which channel, which inclusion criteria have been checked, when the information letter
+was sent and the consent form signed, which optional consents were given, and the appointments. The overview
+shows the number of drivers per experience level against the target, the recorded sessions per driver, the
+progress of each expert and what is still open per participant.
+
+The register is the only place where a name and a pseudonym occur together. It is stored in `register_dir`,
+which may not lie inside `data_dir`, and nothing in the analysis reads it. One button writes experience level
+and consent to the participant files of the research data, by pseudonym only. Another removes all names and
+contact details once the thesis has been completed. Set `KM_REGISTER_PASSWORD` to protect the page with a
+password.
+
 ## Review tool
 
 The review has two parts. In **Sessions** the expert sees a whole session (time lost per corner and lap, and
@@ -202,7 +217,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 27 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 30 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

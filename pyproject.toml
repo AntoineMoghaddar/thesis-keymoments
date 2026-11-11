@@ -28,7 +28,7 @@ km = "km.cli:main"
 km-logger = "logger.app:main"
 
 [tool.setuptools]
-packages = ["km", "logger", "review_app"]
+packages = ["km", "logger", "review_app", "register_app"]
 
 [tool.ruff]
 line-length = 125
