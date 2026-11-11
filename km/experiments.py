@@ -244,14 +244,25 @@ def sq3(cfg: dict) -> dict:
     size = pd.DataFrame(rows)
     size_curve = size.groupby("fraction")["pr_auc"].agg(pr_auc_mean="mean", pr_auc_std="std").reset_index()
 
-    # 2. Laps per driver per circuit, taken in the order in which they were driven.
-    order = windows.groupby(["driver", "circuit"])["lap_uid"].transform(
+    # 2. Laps per driver per circuit: randomly drawn from all sessions of a driver, or the first laps driven.
+    driven = windows.groupby(["driver", "circuit"])["lap_uid"].transform(
         lambda x: pd.factorize(x, sort=True)[0]).to_numpy()
+    group = (windows["driver"] + "|" + windows["circuit"]).to_numpy()
+    random_laps = ev.get("laps_selection", "random") == "random"
     rows = []
     for n_laps in ev["laps_per_driver"]:
         for seed in ev["seeds"]:
             def keep(train, rng, n_laps=n_laps):
-                return train if n_laps is None else train & (order < n_laps)
+                if n_laps is None:
+                    return train
+                if not random_laps:
+                    return train & (driven < n_laps)
+                chosen = np.zeros(len(train), dtype=bool)
+                for g in np.unique(group[train]):
+                    laps = np.unique(lap_ids[train & (group == g)])
+                    picked = rng.choice(laps, min(n_laps, len(laps)), replace=False)
+                    chosen |= (group == g) & np.isin(lap_ids, picked)
+                return train & chosen
             pred = cross_validate(windows, cfg, data, which, seed, train_filter=keep)
             rows.append(dict(laps="all" if n_laps is None else n_laps, seed=seed, pr_auc=pr_auc(pred)))
     laps = pd.DataFrame(rows)

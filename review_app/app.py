@@ -206,6 +206,16 @@ def load_sessions(folder: str):
             pd.read_parquet(folder / "session_traces.parquet"))
 
 
+def sessions_open(folder: Path, user: dict) -> bool:
+    """True while the expert still has sessions to complete in the first task."""
+    package = load_sessions(str(folder))
+    if package is None:
+        return False
+    assigned = set(package[1].loc[package[1]["expert_id"] == user["expert_id"], "session_key"])
+    picks = review.load_session_picks(folder)
+    return bool(assigned - set(picks.loc[picks["expert_id"] == user["expert_id"], "session_key"]))
+
+
 def corner_figure(trace: pd.DataFrame, highlight: int, lang: str) -> go.Figure:
     """All laps of a session in one corner, with the reference lap and one lap highlighted."""
     rows = [("speed", 1.0), ("gas", 100.0), ("brake", 100.0), ("steer", 1.0)]
@@ -388,6 +398,8 @@ def main() -> None:
         page_intro(folder, user, lang)
     elif page == "page_sessions" and user["role"] == "expert":
         page_sessions(folder, user, lang, int(os.environ.get("KM_BUDGET", load_budget())))
+    elif page == "page_review" and user["role"] == "expert" and sessions_open(folder, user):
+        st.info(t("sessions_first", lang))       # the session task comes first, so that it is not influenced
     elif page == "page_review" and user["role"] == "expert":
         page_review(folder, user, lang)
     else:
