@@ -7,6 +7,8 @@ TEXT = {
     "pseudonym": {"en": "Pseudonym (for example D03)", "nl": "Pseudoniem (bijvoorbeeld D03)"},
     "level": {"en": "Experience level (set by researcher)", "nl": "Ervaringsniveau (door onderzoeker)"},
     "consent": {"en": "The consent form has been signed", "nl": "Het toestemmingsformulier is ondertekend"},
+    "publication": {"en": "Consent given for publication of the data (optional item on the form)",
+                    "nl": "Toestemming gegeven voor publicatie van de data (optionele vraag op het formulier)"},
     "questionnaire": {"en": "Questionnaire", "nl": "Vragenlijst"},
     "q_open": {"en": "Open questionnaire", "nl": "Vragenlijst openen"},
     "q_done": {"en": "Questionnaire completed", "nl": "Vragenlijst ingevuld"},

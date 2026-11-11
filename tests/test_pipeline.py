@@ -228,6 +228,18 @@ def test_dataset_export_carries_no_internal_identifiers(study, tmp_path):
     assert set(keys.loc[keys["kind"] == "driver", "internal_id"]) == set(study["windows"]["driver"])
     public = pd.read_parquet(out / "derived" / "windows.parquet")
     assert len(public) == len(study["windows"]) and public["window_id"].is_unique
+
+    # A driver without consent for publication is left out completely.
+    record = Paths.from_config(cfg).participants / "D02.json"
+    original = record.read_text(encoding="utf-8")
+    record.write_text(original.replace('"publication_consent": true', '"publication_consent": false'), encoding="utf-8")
+    try:
+        partial = export.export_dataset(cfg, tmp_path / "public2", tmp_path / "ut" / "key2.csv", seed=1)
+    finally:
+        record.write_text(original, encoding="utf-8")
+    assert partial["left_out_without_consent"] == ["D02"] and partial["drivers"] == 2
+    assert pd.read_parquet(tmp_path / "public2" / "derived" / "windows.parquet")["driver"].nunique() == 2
+    assert "D02" not in set(pd.read_csv(tmp_path / "ut" / "key2.csv")["internal_id"])
     sums = (out / "SHA256SUMS").read_text().splitlines()
     assert len(sums) == info["files"] - 1
 

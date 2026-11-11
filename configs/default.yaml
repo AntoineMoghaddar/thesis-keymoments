@@ -103,5 +103,6 @@ review:
   context: 0.35           # track shown before and after the segment, as a share of its length
 
 export:
+  exclude_experts: []       # expert ids (E01, ...) who did not consent to publication of their judgements
   questionnaire_items: []   # questionnaire answers published with the dataset; free text is never published
   licence: "to be decided"
