@@ -9,13 +9,33 @@ from .features import MODEL_FEATURES
 from .labelling import TYPES
 
 
-def fit_detector(X: pd.DataFrame, y: np.ndarray, cfg: dict, seed: int = 0) -> XGBClassifier:
-    """Gradient-boosted trees on the engineered features, with the positive class weighted up."""
-    pos = max(int(y.sum()), 1)
-    model = XGBClassifier(**cfg["model"]["xgb"], scale_pos_weight=(len(y) - pos) / pos, random_state=seed,
-                          eval_metric="logloss", n_jobs=4, tree_method="hist")
-    model.fit(X[MODEL_FEATURES], y)
+def fit_detector(X: pd.DataFrame, y: np.ndarray, cfg: dict, seed: int = 0, features: list[str] | None = None,
+                 prob: np.ndarray | None = None) -> XGBClassifier:
+    """Gradient-boosted trees on the engineered features, with the positive class weighted up.
+
+    With `prob` (probabilistic weak labels) a window counts in proportion to how certain its
+    label is: a probability of 0.5 carries almost no weight, 0 and 1 carry full weight.
+    """
+    features = features or MODEL_FEATURES
+    weight = np.ones(len(y)) if prob is None else np.maximum(np.abs(2 * np.asarray(prob) - 1), 0.05)
+    pos = max(float(weight[y == 1].sum()), 1e-6)
+    model = XGBClassifier(**cfg["model"]["xgb"], scale_pos_weight=float(weight[y == 0].sum()) / pos,
+                          random_state=seed, eval_metric="logloss", n_jobs=4, tree_method="hist")
+    model.fit(X[features], y, sample_weight=weight)
+    model.km_features = features
     return model
+
+
+def predict(model: XGBClassifier, X: pd.DataFrame) -> np.ndarray:
+    return model.predict_proba(X[model.km_features])[:, 1]
+
+
+def contributions(model: XGBClassifier, X: pd.DataFrame) -> pd.DataFrame:
+    """SHAP values per feature (in log-odds), computed by XGBoost itself."""
+    import xgboost
+    matrix = xgboost.DMatrix(X[model.km_features])
+    values = model.get_booster().predict(matrix, pred_contribs=True)[:, :-1]
+    return pd.DataFrame(values, columns=model.km_features, index=X.index)
 
 
 class TypeModel:

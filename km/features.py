@@ -13,9 +13,26 @@ from .config import Paths
 from .preprocess import CH, load_prepared, reference_index
 from .segments import get_segments
 
+# Groups are used for the ablation and for reading the explanations of the model.
+FEATURE_GROUPS = {
+    "time": ["time_loss", "exit_loss", "seg_time", "dtw_speed"],
+    "braking": ["d_brake_onset_m", "peak_brake", "d_peak_brake", "brake_rise_s", "brake_release_s",
+                "d_brake_release_s", "d_brake_len_m", "abs_frac", "entry_speed", "d_entry_speed"],
+    "speed": ["min_speed", "d_min_speed", "min_speed_ratio"],
+    "throttle": ["d_throttle_pickup_m", "d_full_throttle_m", "throttle_lifts", "d_throttle_lifts",
+                 "exit_speed", "d_exit_speed"],
+    "traction": ["slip_exit_max", "d_slip_exit_max", "tc_frac", "yaw_rate_max"],
+    "steering_line": ["steer_integral", "d_steer_integral", "steer_reversals", "d_steer_reversals",
+                      "line_dev_max", "line_dev_mean"],
+    "incident": ["tyres_out_max"],
+    "consistency": ["time_cv_ratio"],
+}
+TYPE_GROUP = {"K1": "braking", "K2": "braking", "K3": "speed", "K4": "throttle", "K5": "traction",
+              "K6": "steering_line", "K7": "incident", "K8": "consistency"}
+
 # Features given to the tree model. Identifiers and absolute positions are left out on purpose.
 MODEL_FEATURES = [
-    "time_loss", "seg_time", "entry_speed", "min_speed", "exit_speed",
+    "time_loss", "exit_loss", "seg_time", "entry_speed", "min_speed", "exit_speed",
     "d_entry_speed", "d_min_speed", "d_exit_speed", "min_speed_ratio",
     "d_brake_onset_m", "peak_brake", "d_peak_brake", "brake_rise_s", "brake_release_s",
     "d_brake_release_s", "d_brake_len_m",
@@ -154,11 +171,54 @@ def window_features(lap: np.ndarray, ref: np.ndarray, lap_time: float, ref_time:
     return out
 
 
-def build_windows(cfg: dict, force_segments: bool = False) -> pd.DataFrame:
+REFERENCES = ("own_best", "ideal", "expert")
+
+
+def _reference_rows(laps: pd.DataFrame, data: np.ndarray, rows: np.ndarray, segs: list[dict], mode: str) -> np.ndarray:
+    """Row number of the reference lap for every lap and segment of one circuit.
+
+    own_best  the fastest clean lap of the same driver
+    ideal     per segment the lap in which the same driver was fastest in that segment
+    expert    the fastest clean lap of another driver with a high experience level
+    """
+    own = reference_index(laps)[rows]
+    out = np.repeat(own[:, None], len(segs), axis=1)
+    if mode == "own_best":
+        return out
+    drivers = laps["driver"].to_numpy()[rows]
+    if mode == "expert":
+        sub = laps.iloc[rows]
+        pool = sub[(sub["level"] == "high") & sub["clean"]]
+        for k, driver in enumerate(drivers):
+            others = pool[pool["driver"] != driver]
+            if len(others):                       # without another experienced driver the own best lap stays
+                out[k, :] = laps.index.get_loc(others["lap_time"].idxmin())
+        return out
+    if mode == "ideal":
+        for s_i, seg in enumerate(segs):
+            a, b = seg["start_idx"], seg["end_idx"]
+            times = np.array([_seg_time(data[i], laps.iloc[i]["lap_time"], a, b) for i in rows])
+            off = np.array([data[i][a:b, CH["tyres_out"]].max() >= 3 for i in rows])
+            for driver in np.unique(drivers):
+                mine = np.flatnonzero(drivers == driver)
+                ok = mine[~off[mine]] if (~off[mine]).any() else mine
+                out[mine, s_i] = rows[ok[np.argmin(times[ok])]]
+        return out
+    raise ValueError(f"Unknown reference: {mode}")
+
+
+def windows_path(cfg: dict, reference: str | None = None):
+    mode = reference or cfg["features"]["reference"]
+    name = "windows.parquet" if mode == cfg["features"]["reference"] else f"windows_{mode}.parquet"
+    return Paths.from_config(cfg).prepared / name
+
+
+def build_windows(cfg: dict, force_segments: bool = False, reference: str | None = None) -> pd.DataFrame:
     """Compute the feature table for all laps and segments and store it."""
     paths = Paths.from_config(cfg).ensure()
+    mode = reference or cfg["features"]["reference"]
     laps, data, circuits = load_prepared(cfg)
-    ref_idx = reference_index(laps)
+    laps = laps.reset_index(drop=True)
     n = data.shape[1]
     look = int(cfg["features"]["lookaround"] * n)
     rows = []
@@ -168,34 +228,43 @@ def build_windows(cfg: dict, force_segments: bool = False) -> pd.DataFrame:
             segs = [s for s in segs if s["kind"] == "corner"]
         ds = info["length_m"] / n
         corners = [s for s in segs if s["kind"] == "corner"]
-        for i in np.where(laps["circuit"] == circuit)[0]:
+        lap_rows = np.where(laps["circuit"] == circuit)[0]
+        refs = _reference_rows(laps, data, lap_rows, segs, mode)
+        for k, i in enumerate(lap_rows):
             lap_row = laps.iloc[i]
-            j = ref_idx[i]
-            for seg in segs:
+            for s_i, seg in enumerate(segs):
+                j = int(refs[k, s_i])
+                ref_time = laps.iloc[j]["lap_time"]
                 a, b = seg["start_idx"], seg["end_idx"]
                 prev_end = max([c["end_idx"] for c in corners if c["end_idx"] <= a], default=0)
                 next_start = min([c["start_idx"] for c in corners if c["start_idx"] >= b], default=n)
                 bounds = (max(prev_end, a - look), min(next_start, b + look))
-                feats = window_features(data[i], data[j], lap_row["lap_time"], laps.iloc[j]["lap_time"],
-                                        seg, bounds, ds, cfg)
+                feats = window_features(data[i], data[j], lap_row["lap_time"], ref_time, seg, bounds, ds, cfg)
+                # Time lost on the straight after a corner is the price of a poor exit.
+                exit_loss = 0.0
+                if seg["kind"] == "corner" and next_start > b:
+                    exit_loss = (_seg_time(data[i], lap_row["lap_time"], b, next_start)
+                                 - _seg_time(data[j], ref_time, b, next_start))
                 rows.append(dict(window_id=f"{lap_row['lap_uid']}_{seg['id']}", lap_uid=lap_row["lap_uid"],
-                                 lap_row=int(i), ref_row=int(j), session_id=lap_row["session_id"],
+                                 lap_row=int(i), ref_row=j, session_id=lap_row["session_id"],
                                  driver=lap_row["driver"], level=lap_row["level"], circuit=circuit,
                                  lap=int(lap_row["lap"]), segment=seg["id"], segment_name=seg["name"],
                                  is_corner=int(seg["kind"] == "corner"), start_idx=a, end_idx=b,
-                                 is_reference=bool(lap_row["is_reference"]), **feats))
+                                 is_reference=bool(i == j), reference=mode, exit_loss=exit_loss, **feats))
     w = pd.DataFrame(rows)
+    w["total_loss"] = w["time_loss"] + w["exit_loss"]
     # Consistency of a driver in a segment within a session, relative to his or her other segments.
     cv = w.groupby(["session_id", "segment"])["seg_time"].transform(lambda x: x.std(ddof=0) / x.mean())
     w["time_cv"] = cv
     w["time_cv_ratio"] = cv / w.groupby("session_id")["time_cv"].transform("median").clip(lower=1e-9)
     w["session_median_time"] = w.groupby(["session_id", "segment"])["seg_time"].transform("median")
-    w.to_parquet(paths.prepared / "windows.parquet", index=False)
+    w.to_parquet(windows_path(cfg, mode), index=False)
     return w
 
 
-def load_windows(cfg: dict) -> pd.DataFrame:
-    return pd.read_parquet(Paths.from_config(cfg).prepared / "windows.parquet")
+def load_windows(cfg: dict, reference: str | None = None) -> pd.DataFrame:
+    path = windows_path(cfg, reference)
+    return pd.read_parquet(path) if path.exists() else build_windows(cfg, reference=reference)
 
 
 def raw_windows(windows: pd.DataFrame, data: np.ndarray, length: int) -> np.ndarray:

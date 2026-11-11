@@ -20,7 +20,7 @@ def study(tmp_path_factory):
         "evaluation": {"bootstrap": 30, "seeds": [0], "train_fractions": [0.5, 1.0], "laps_per_driver": [4, None],
                        "review_steps": [0, 10]},
         "model": {"xgb": {"n_estimators": 60}, "seq": {"epochs": 2}},
-        "review": {"n_experts": 3, "per_expert": 20, "shared": 8},
+        "review": {"n_experts": 3, "per_expert": 20, "shared": 8, "sessions_per_expert": 3, "sessions_shared": 2},
     })
     laps = preprocess.prepare(cfg)
     windows = features.build_windows(cfg)
