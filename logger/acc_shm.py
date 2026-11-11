@@ -170,9 +170,15 @@ class AccSource:
                 "aid_mechanical_damage": s.aidMechanicalDamage}
 
     def settings(self) -> dict:
+        """Settings and conditions at the start of a recording. They have to be equal across sessions."""
         g = self._read("graphics", Graphics)
+        p = self._read("physics", Physics)
         return {"tc_level": g.TC, "abs_level": g.ABS, "engine_map": g.EngineMap, "ideal_line_on": g.idealLineOn,
-                "tyre_compound": text(g.tyreCompound), "session_type": g.session, "rain_tyres": g.rainTyres}
+                "tyre_compound": text(g.tyreCompound), "session_type": g.session, "rain_tyres": g.rainTyres,
+                "track_grip_status": g.trackGripStatus, "rain_intensity": g.rainIntensity,
+                "surface_grip": round(g.surfaceGrip, 3), "wind_speed": round(g.windSpeed, 1),
+                "air_temp": round(p.airTemp, 1), "road_temp": round(p.roadTemp, 1),
+                "brake_bias": round(p.brakeBias, 3), "fuel_at_start": round(p.fuel, 1)}
 
     def read(self) -> tuple[int, dict]:
         graphics = self._read("graphics", Graphics)

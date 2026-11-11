@@ -49,6 +49,7 @@ class SequenceDetector:
         self.std = X.std(axis=(0, 2), keepdims=True) + 1e-6
         self.net = _network(X.shape[1], self.cfg["hidden"])
         data, target = self._scale(X), torch.from_numpy(y.astype(np.float32))
+        # y may hold probabilities (soft weak labels); the loss accepts those as targets.
         pos = max(float(y.sum()), 1.0)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor((len(y) - pos) / pos))
         optim = torch.optim.Adam(self.net.parameters(), lr=self.cfg["lr"], weight_decay=1e-4)

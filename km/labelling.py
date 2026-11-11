@@ -68,64 +68,151 @@ def fit_thresholds(windows: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
 
 def apply(windows: pd.DataFrame, thresholds: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """Votes of the eight labelling functions: one column per type with values 1, 0 or -1."""
+    """Votes of the eight labelling functions and how strongly each one fires.
+
+    One column per type with values 1, 0 or -1, and one column `<type>_strength` with the
+    largest ratio between a measured quantity and its threshold (0 when the function does not fire).
+    """
     lab = cfg["labelling"]
     w = windows.merge(thresholds, on=["circuit", "segment"], how="left", suffixes=("", "_thr"))
     corner = w["is_corner"].to_numpy() == 1
+    exit_loss = w["exit_loss"].to_numpy() if "exit_loss" in w else 0.0
     slower = (w["time_loss"] > lab["min_time_loss_s"]).to_numpy()
+    # A poor exit shows on the straight that follows, so the exit types also count that time.
+    slower_exit = (w["time_loss"].to_numpy() + exit_loss) > lab["min_time_loss_s"]
 
     def exceeds(q):
-        return (_value(w, q) > w[q]).to_numpy(), _value(w, q).isna().to_numpy()
+        value = _value(w, q)
+        ratio = (value / w[q]).clip(lower=0, upper=10).fillna(0).to_numpy()
+        return (value > w[q]).to_numpy(), value.isna().to_numpy(), ratio
 
-    votes = {}
+    votes, strengths = {}, {}
 
-    def vote(name, fired, missing, needs_corner=True, needs_loss=True):
-        fired = fired & (slower if needs_loss else True)
+    def vote(name, parts, extra=None, needs_corner=True, gate=None):
+        fired = np.any([p[0] for p in parts], axis=0)
+        missing = np.all([p[1] for p in parts], axis=0)
+        strength = np.max([np.where(p[0], p[2], 0.0) for p in parts], axis=0)
+        if extra is not None:
+            fired, strength = fired | extra[0], np.maximum(strength, np.where(extra[0], extra[1], 0.0))
+        if gate is not None:
+            fired = fired & gate
         out = np.where(fired, 1, np.where(missing, ABSTAIN, 0))
         if needs_corner:
             out = np.where(corner, out, ABSTAIN)
         votes[name] = out
+        strengths[f"{name}_strength"] = np.where(out == 1, strength, 0.0)
 
-    f, m = exceeds("K1_onset")
-    vote("K1", f, m)
-    (f1, m1), (f2, m2) = exceeds("K2_peak"), exceeds("K2_release")
-    vote("K2", f1 | f2, m1 & m2)
-    f, m = exceeds("K3_speed")
-    vote("K3", f, m)
-    f, m = exceeds("K4_pickup")
+    vote("K1", [exceeds("K1_onset")], gate=slower)
+    vote("K2", [exceeds("K2_peak"), exceeds("K2_release")], gate=slower)
+    vote("K3", [exceeds("K3_speed")], gate=slower)
     lifts = (w["d_throttle_lifts"] >= 1).to_numpy()
-    vote("K4", f | lifts, m & w["d_throttle_lifts"].isna().to_numpy())
-    (f1, m1), (f2, m2) = exceeds("K5_slip"), exceeds("K5_tc")
-    vote("K5", f1 | f2, m1 & m2)
-    (f1, m1), (f2, m2) = exceeds("K6_steer"), exceeds("K6_line")
-    vote("K6", f1 | f2, m1 & m2)
-    f, m = exceeds("K7_loss")
+    vote("K4", [exceeds("K4_pickup")], extra=(lifts, 1.0 + w["d_throttle_lifts"].fillna(0).to_numpy()), gate=slower_exit)
+    vote("K5", [exceeds("K5_slip"), exceeds("K5_tc")], gate=slower_exit)
+    vote("K6", [exceeds("K6_steer"), exceeds("K6_line")], gate=slower)
     off = (w["tyres_out_max"] >= lab["K7"]["tyres_out"]).to_numpy()
-    vote("K7", f | off, m, needs_corner=False, needs_loss=False)
-    inconsistent = (w["time_cv_ratio"] > lab["K8"]["ratio"]) & (w["seg_time"] > w["session_median_time"])
-    vote("K8", inconsistent.to_numpy(), w["time_cv_ratio"].isna().to_numpy(), needs_loss=False)
+    vote("K7", [exceeds("K7_loss")], extra=(off, 2.0), needs_corner=False)
+    ratio = (w["time_cv_ratio"] / lab["K8"]["ratio"]).fillna(0).to_numpy()
+    inconsistent = ((ratio > 1) & (w["seg_time"] > w["session_median_time"]).to_numpy())
+    none = np.zeros(len(w), dtype=bool)
+    vote("K8", [(none, w["time_cv_ratio"].isna().to_numpy(), ratio)], extra=(inconsistent, ratio))
 
-    out = pd.DataFrame(votes, index=windows.index)
+    out = pd.DataFrame({**votes, **strengths}, index=windows.index)
     # A reference lap is compared with itself and therefore carries no information.
-    out.loc[windows["is_reference"].to_numpy(), [t for t in TYPES if t != "K7"]] = ABSTAIN
+    ref = windows["is_reference"].to_numpy()
+    for t in TYPES:
+        if t != "K7":
+            out.loc[ref, t] = ABSTAIN
+            out.loc[ref, f"{t}_strength"] = 0.0
     return out
 
 
-def aggregate(votes: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """Weak label per window: key moment yes or no, and the primary type when several functions fire."""
-    priority = cfg["labelling"]["priority"]
+class LabelModel:
+    """Learns how reliable each labelling function is, without any true labels.
+
+    A window is a key moment (y = 1) or not (y = 0). Each function fires with one probability
+    when y = 1 and with another when y = 0, independently of the other functions given y. The
+    probabilities are estimated with expectation maximisation (Dawid and Skene, 1979). A function
+    that fires on many windows on which no other function fires ends up with little weight.
+    """
+
+    def __init__(self, n_iter: int = 200, tol: float = 1e-6):
+        self.n_iter, self.tol = n_iter, tol
+        self.prior = self.fire_pos = self.fire_neg = None
+
+    def fit(self, votes: np.ndarray) -> "LabelModel":
+        votes = np.asarray(votes)
+        seen = votes != ABSTAIN
+        fired = (votes == 1) & seen
+        k = votes.shape[1]
+        self.prior = float(np.clip(fired.any(axis=1).mean(), 0.02, 0.6))
+        rate = fired.sum(axis=0) / np.maximum(seen.sum(axis=0), 1)
+        self.fire_pos = np.clip(rate / self.prior, 0.05, 0.9)
+        self.fire_neg = np.full(k, 0.01)
+        for _ in range(self.n_iter):
+            post = self.predict_proba(votes)
+            w_pos, w_neg = post[:, None] * seen, (1 - post)[:, None] * seen
+            new_pos = np.clip((w_pos * fired).sum(axis=0) / np.maximum(w_pos.sum(axis=0), 1e-9), 1e-3, 0.999)
+            # A function may fire on at most one in five windows that are not key moments;
+            # without this bound the two classes can swap during estimation.
+            new_neg = np.clip((w_neg * fired).sum(axis=0) / np.maximum(w_neg.sum(axis=0), 1e-9), 1e-4, 0.2)
+            new_prior = float(np.clip(post.mean(), 0.01, 0.9))
+            shift = max(np.abs(new_pos - self.fire_pos).max(), np.abs(new_neg - self.fire_neg).max())
+            self.fire_pos, self.fire_neg, self.prior = new_pos, new_neg, new_prior
+            if shift < self.tol:
+                break
+        return self
+
+    def predict_proba(self, votes: np.ndarray) -> np.ndarray:
+        votes = np.asarray(votes)
+        seen = votes != ABSTAIN
+        fired = votes == 1
+        log_pos = np.where(fired, np.log(self.fire_pos), np.log1p(-self.fire_pos))
+        log_neg = np.where(fired, np.log(self.fire_neg), np.log1p(-self.fire_neg))
+        diff = ((log_pos - log_neg) * seen).sum(axis=1) + np.log(self.prior) - np.log1p(-self.prior)
+        return 1.0 / (1.0 + np.exp(-np.clip(diff, -30, 30)))
+
+    def table(self) -> pd.DataFrame:
+        precision = self.fire_pos * self.prior / (self.fire_pos * self.prior + self.fire_neg * (1 - self.prior))
+        return pd.DataFrame({"function": TYPES, "fires_given_moment": self.fire_pos,
+                             "fires_given_no_moment": self.fire_neg, "estimated_precision": precision})
+
+
+def aggregate(votes: pd.DataFrame, cfg: dict, prob: np.ndarray | None = None) -> pd.DataFrame:
+    """Weak label per window: key moment yes or no, its probability and the primary type."""
+    lab = cfg["labelling"]
+    priority = lab["priority"]
     fired = votes[priority] == 1
     n_fired = fired.sum(axis=1)
-    primary = np.where(n_fired > 0, fired.idxmax(axis=1), "none")
-    return pd.DataFrame({"weak_label": (n_fired > 0).astype(int), "weak_type": primary,
+    strength_cols = [f"{t}_strength" for t in priority]
+    if lab.get("type_rule", "priority") == "strongest" and set(strength_cols) <= set(votes.columns):
+        strongest = votes[strength_cols].to_numpy().argmax(axis=1)
+        primary = np.where(n_fired > 0, np.array(priority, dtype=object)[strongest], "none")
+    else:
+        primary = np.where(n_fired > 0, fired.idxmax(axis=1), "none")
+    weak_prob = (n_fired > 0).astype(float).to_numpy() if prob is None else np.where(n_fired > 0, prob, 0.0)
+    return pd.DataFrame({"weak_label": (weak_prob >= 0.5).astype(int), "weak_prob": weak_prob,
+                         "weak_type": np.where(weak_prob >= 0.5, primary, "none"),
                          "n_fired": n_fired.astype(int)}, index=votes.index)
 
 
-def label(windows: pd.DataFrame, cfg: dict, fit_mask: np.ndarray | None = None) -> pd.DataFrame:
-    """Votes and aggregated labels. `fit_mask` restricts the windows the thresholds are fitted on."""
+def label(windows: pd.DataFrame, cfg: dict, fit_mask: np.ndarray | None = None, exclude=(),
+          return_model: bool = False):
+    """Votes and aggregated labels.
+
+    fit_mask  restricts the windows on which thresholds and label model are fitted
+    exclude   labelling functions that are switched off (used for the ablation)
+    """
     thresholds = fit_thresholds(windows if fit_mask is None else windows[fit_mask], cfg)
     votes = apply(windows, thresholds, cfg)
-    return pd.concat([votes, aggregate(votes, cfg)], axis=1)
+    for t in exclude:
+        votes[t], votes[f"{t}_strength"] = ABSTAIN, 0.0
+    prob = model = None
+    if cfg["labelling"].get("aggregation", "any") == "label_model":
+        matrix = votes[TYPES].to_numpy()
+        model = LabelModel().fit(matrix if fit_mask is None else matrix[fit_mask])
+        prob = model.predict_proba(matrix)
+    out = pd.concat([votes, aggregate(votes, cfg, prob)], axis=1)
+    return (out, model) if return_model else out
 
 
 def statistics(votes: pd.DataFrame, cfg: dict) -> pd.DataFrame:

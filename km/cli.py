@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import argparse
 
+import numpy as np
 import pandas as pd
 
 from .config import Paths, load_config
 
 
 def _advise(cfg: dict, session: str, budget: int, lang: str) -> None:
-    """Deployment view: the B moments of one session with their advice text."""
-    from . import labelling, models
-    from .advice import TYPE_NAMES, advice_text
-    from .evaluation import top_b
-    from .features import MODEL_FEATURES, load_windows
+    """Deployment view: the B moments of one session with advice and the reason for the selection."""
+    from . import labelling, models, moments
+    from .advice import TYPE_NAMES
+    from .features import FEATURE_GROUPS, load_windows
     windows = load_windows(cfg)
     if session not in set(windows["session_id"]):
         raise SystemExit(f"Unknown session. Available: {sorted(windows['session_id'].unique())[:10]} ...")
@@ -23,13 +23,20 @@ def _advise(cfg: dict, session: str, budget: int, lang: str) -> None:
     y = labels["weak_label"].to_numpy()
     detector = models.fit_detector(windows[train], y[train], cfg)
     typer = models.TypeModel(cfg).fit(windows[train & (y == 1)], labels["weak_type"][train & (y == 1)])
-    sess = windows[(windows["session_id"] == session) & ~windows["is_reference"]].copy()
-    sess["score"] = detector.predict_proba(sess[MODEL_FEATURES])[:, 1]
+    sess = windows[windows["session_id"] == session].copy()
+    sess["score"] = np.where(sess["is_reference"], 0.0, models.predict(detector, sess))
     sess["type"] = typer.predict(sess)
-    chosen = sess[top_b(sess, "score", budget)].sort_values("score", ascending=False)
+    chosen = moments.select(moments.session_moments(sess, cfg), budget)
+    if chosen.empty:
+        print("No moments above the threshold in this session.")
+        return
+    contrib = moments.group_contributions(models.contributions(detector, sess), FEATURE_GROUPS)
     for r in chosen.to_dict("records"):
-        print(f"[{r['type']} {TYPE_NAMES[lang][r['type']]}] lap {r['lap']}, score {r['score']:.2f}")
-        print("  " + advice_text(r, r["type"], lang))
+        why = contrib.loc[sess["window_id"] == r["example_window"]].iloc[0].sort_values(ascending=False).head(2)
+        print(f"{int(r['rank'])}. [{r['type']} {TYPE_NAMES[lang][r['type']]}] {r['segment_name']}, "
+              f"laps {r['laps']}, expected gain {r['expected_gain']:.2f} s")
+        print("   " + moments.describe(r, lang))
+        print("   strongest signals: " + ", ".join(f"{g} ({v:+.2f})" for g, v in why.items()))
 
 
 def main(argv=None) -> None:
@@ -47,6 +54,14 @@ def main(argv=None) -> None:
     p = sub.add_parser("sq2", help="model comparison on unseen drivers")
     p.add_argument("--no-seq", action="store_true", help="skip the sequence model")
     sub.add_parser("sq3", help="data requirements")
+    sub.add_parser("reference", help="compare three kinds of reference lap")
+    sub.add_parser("generalisation", help="unseen driver, unseen circuit and unseen experience level")
+    sub.add_parser("ablation", help="contribution of feature groups, labelling functions and aggregation")
+    sub.add_parser("qc", help="quality control of the recorded sessions")
+    sub.add_parser("figures", help="draw the figures from the result tables")
+    p = sub.add_parser("export-dataset", help="write an anonymised copy of the dataset for publication")
+    p.add_argument("--out", required=True, help="empty folder for the public dataset")
+    p.add_argument("--key", required=True, help="path of the key file (university storage, outside the dataset folder)")
     sub.add_parser("review-package", help="select windows for the experts and create access codes")
     sub.add_parser("sq4", help="analyse the expert responses")
     p = sub.add_parser("advise", help="print the selected moments of one session with advice")
@@ -63,7 +78,7 @@ def main(argv=None) -> None:
     pd.set_option("display.width", 200)
     pd.set_option("display.max_rows", 200)
 
-    from . import experiments, features, preprocess, review, segments, synth
+    from . import experiments, export, features, figures, preprocess, qc, review, segments, synth
     if args.command == "synth":
         truth = synth.generate(paths.data, drivers_per_level=args.drivers_per_level)
         print(f"Synthetic sessions written to {paths.raw} ({len(truth)} injected errors).")
@@ -87,12 +102,27 @@ def main(argv=None) -> None:
         out = experiments.sq2(cfg, with_seq=not args.no_seq)
         print(out["summary"])
         print(out["metrics"].pivot(index="metric", columns="model", values="value").round(3))
+        print(out["tests"].round(3).to_string(index=False))
     if args.command == "sq3":
         out = experiments.sq3(cfg)
-        for name in ("training_size", "laps_per_driver", "label_quality"):
+        for name in ("training_size", "laps_per_driver", "training_drivers", "label_quality"):
             if name in out:
                 print(out[name].round(3).to_string(index=False))
         print(out["requirement"])
+    if args.command == "reference":
+        print(experiments.reference_study(cfg).round(3).to_string(index=False))
+    if args.command == "generalisation":
+        print(experiments.generalisation(cfg).round(3).to_string(index=False))
+    if args.command == "ablation":
+        for name, table in experiments.ablation(cfg).items():
+            print(f"\n{name}:\n{table.round(3).to_string(index=False)}")
+    if args.command == "qc":
+        table = qc.session_quality(cfg)
+        print(table[["session_id", "rate_hz", "laps_usable", "best_lap", "notes"]].to_string(index=False) if len(table) else "No sessions.")
+    if args.command == "figures":
+        print(f"{len(figures.make_figures(cfg))} figures written to {paths.results / 'figures'}")
+    if args.command == "export-dataset":
+        print(export.export_dataset(cfg, args.out, args.key))
     if args.command == "review-package":
         print(review.build_package(cfg))
         print(f"Access codes: {paths.review / 'access_codes_PRIVATE.csv'} (keep this file to yourself)")

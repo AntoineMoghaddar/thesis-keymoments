@@ -73,17 +73,23 @@ Samples are written to disk every ten seconds, so a crash costs at most the last
 ## Analysis
 
 ```
+km --config configs/local.yaml qc               quality control of the recordings (run after every visit)
 km --config configs/local.yaml prepare          lap selection and resampling
 km --config configs/local.yaml segments         proposes corner segments, then check configs/segments/*.yaml by hand
 km --config configs/local.yaml features         window features
 km --config configs/local.yaml sq1              labelling functions: coverage, overlap, conflict
 km --config configs/local.yaml sq2              models and baselines on unseen drivers
-km --config configs/local.yaml sq3              data requirements
+km --config configs/local.yaml sq3              data requirements (laps, drivers, label quality)
+km --config configs/local.yaml reference        three kinds of reference lap compared
+km --config configs/local.yaml generalisation   unseen driver, unseen circuit, unseen experience level
+km --config configs/local.yaml ablation         feature groups, labelling functions, aggregation
 km --config configs/local.yaml review-package   selects windows for the experts, creates access codes
 streamlit run review_app/app.py                 the review tool
 km --config configs/local.yaml sq4              agreement, reference labels
 km --config configs/local.yaml sq2              again, now evaluated against the expert labels
+km --config configs/local.yaml figures          figures for the thesis as PDF and PNG
 km --config configs/local.yaml advise <session> --lang nl
+km --config configs/local.yaml export-dataset --out <folder> --key <path on university storage>
 ```
 
 `km synth` writes a synthetic study to the data folder for trying out the pipeline. The synthetic tracks
@@ -101,7 +107,14 @@ are invented and are called `synth_a` and `synth_b`.
 | Gradient-boosted trees, type model, baselines | `km/models.py` |
 | Sequence model | `km/seqmodel.py` |
 | Split by driver, PR-AUC, precision@B, bootstrap over drivers | `km/evaluation.py` |
-| SQ1 to SQ3 | `km/experiments.py` |
+| SQ1 to SQ3, reference study, generalisation, ablation | `km/experiments.py` |
+| Label model (reliability per labelling function without true labels) | `km/labelling.py: LabelModel` |
+| Moments at session level: recurring or incidental, spread over corners | `km/moments.py` |
+| Explanations per selected moment (SHAP values from XGBoost) | `km/models.py: contributions` |
+| Paired tests per driver, calibration | `km/evaluation.py` |
+| Quality control of recordings | `km/qc.py` |
+| Figures | `km/figures.py` |
+| Anonymised dataset for publication | `km/export.py` |
 | SQ4: blind review, Fleiss' kappa, Cohen's kappa, reference labels | `km/review.py`, `review_app/` |
 | Advice templates (R3) | `km/advice.py` |
 
@@ -111,6 +124,10 @@ These are not prescribed by the method chapter and were needed to make the pipel
 are settings in `configs/default.yaml`.
 
 - **Test design.** Leave-one-driver-out by default (`evaluation.scheme: lodo`). A fixed test set is available.
+- **Spread over corners.** Precision@B counts at most one window per corner and session
+  (`evaluation.max_per_segment: 1`), so that B moments are B different corners.
+- **Time lost after the corner.** The time lost on the straight after a corner is attributed to that corner
+  (`exit_loss`) and counts for the exit types K4 and K5.
 - **Time-loss condition.** K1 to K6 only fire when the segment was slower than on the reference lap
   (`labelling.min_time_loss_s`). A deviation that costs no time is not treated as a coaching moment.
 - **Thresholds.** A percentile per segment combined with an absolute floor. The values in the file are
@@ -127,7 +144,43 @@ are settings in `configs/default.yaml`.
   their own output.
 - **Track length.** ACC does not publish it. It is estimated per circuit as the median distance driven per lap.
 
+### Studies beyond the four sub-questions
+
+- **Reference lap** (`km reference`). The pipeline is run with three references: the driver's own best lap, an
+  ideal lap built from the driver's best segments, and the best lap of another experienced driver. The output
+  shows per experience level how many and which moments each reference produces.
+- **Generalisation** (`km generalisation`). Next to an unseen driver, the model is tested on a circuit it has
+  not seen and on an experience level it has not seen. With two circuits the first of these has two folds, so
+  it shows a direction and not more than that.
+- **Ablation** (`km ablation`). Each feature group and each labelling function is left out in turn. The variant
+  without any comparison with the reference shows how much of the detection rests on the reference lap.
+  Leaving out a labelling function changes the weak labels themselves, so this table is only meaningful
+  when it is evaluated against expert labels.
+- **Label model**. `labelling.aggregation: label_model` estimates the reliability of every labelling function
+  from their agreement (Dawid and Skene, 1979) and gives every window a probability. The models are then
+  trained on these probabilities. The default remains `any`, as described in the method chapter.
+- **Session moments**. Flagged windows are grouped per session, corner and type. A group that returns in at
+  least 40% of the laps counts as recurring, otherwise as incidental. At most B groups are selected, each in
+  a different corner, ranked by the time that can be gained.
+- **Statistics**. Per-driver PR-AUC, an exact paired sign-flip test between models, bootstrap intervals over
+  drivers and calibration. With n drivers the smallest attainable p-value of the paired test is 2 / 2^n
+  (0.031 with six drivers, 0.004 with nine); the output states this value.
+
+## Publishing the dataset
+
+`km export-dataset --out <folder> --key <path>` writes a copy of the telemetry, the derived tables and the expert
+judgements with newly assigned random identifiers for drivers, sessions and experts. Dates, times, the
+questionnaire and all free text are left out. The key file links the public identifiers to the study
+pseudonyms. It has to be stored on the university storage, and the command refuses to write it inside the
+public folder. Questionnaire items can be added to the public copy through `export.questionnaire_items`;
+check for each item whether it could single out a person in a group of six to nine drivers.
+
 ## Review tool
+
+The review has two parts. In **Sessions** the expert sees a whole session (time lost per corner and lap, and
+all laps of a corner on top of each other) and chooses at most B corners to discuss. Nothing from the model
+is shown. This gives the share of expert-selected moments that the model also finds, and the overlap between
+two experts as the attainable level. In **Review** the expert judges single segments blind.
 
 Local use:
 
@@ -146,8 +199,10 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 20 tests pass: lap selection, resampling, segmentation, labelling functions, driver splits, metrics,
-  the experiments SQ1 to SQ4 with simulated experts, the recorder, the transfer and the questionnaire.
-- The review tool has been run in a browser on synthetic data.
+- 28 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+  references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
+  experts, the session task, the dataset export (including a check that no study identifier is left in the
+  public copy), the recorder, the transfer and the questionnaire.
+- The review tool, including the session page, has been run in a browser on synthetic data.
 - Not verified: reading from the running game, and the layout of the logger window on screen. The logic
   of the window is tested with a stand-in for the display library.

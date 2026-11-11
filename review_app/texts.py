@@ -13,13 +13,42 @@ T = {
     "page_intro": {"en": "Instructions", "nl": "Instructies"},
     "page_review": {"en": "Review", "nl": "Beoordelen"},
     "page_dash": {"en": "Dashboard", "nl": "Dashboard"},
+    "page_sessions": {"en": "Sessions", "nl": "Sessies"},
+    "sess_intro": {
+        "en": "You see one complete session of one driver: every corner of every lap, compared with the reference lap. Choose at most {b} corners that you would discuss with this driver, the most important one first, and say for each which type of moment it is. If you would discuss nothing, save without choosing a corner.",
+        "nl": "Je ziet een volledige sessie van een coureur: elke bocht van elke ronde, vergeleken met de referentieronde. Kies maximaal {b} bochten die je met deze coureur zou bespreken, de belangrijkste eerst, en geef per bocht aan om welk type moment het gaat. Als je niets zou bespreken, sla dan op zonder een bocht te kiezen."},
+    "sess_progress": {"en": "Session {i} of {n}", "nl": "Sessie {i} van {n}"},
+    "sess_heat": {"en": "Time lost per corner and lap (s, corner plus the straight after it)",
+                  "nl": "Tijdverlies per bocht en ronde (s, bocht plus het rechte stuk erna)"},
+    "sess_lap": {"en": "Lap", "nl": "Ronde"},
+    "sess_corner": {"en": "Corner", "nl": "Bocht"},
+    "sess_inspect": {"en": "Look at a corner in detail", "nl": "Een bocht in detail bekijken"},
+    "sess_all_laps": {"en": "All laps of the session", "nl": "Alle rondes van de sessie"},
+    "sess_highlight": {"en": "Highlight lap", "nl": "Ronde uitlichten"},
+    "sess_pick": {"en": "Choice {k}", "nl": "Keuze {k}"},
+    "sess_type": {"en": "Type of moment", "nl": "Type moment"},
+    "sess_no_corner": {"en": "No corner", "nl": "Geen bocht"},
+    "sess_need_type": {"en": "Choose a type of moment for every corner that you selected.",
+                       "nl": "Kies een type moment voor elke bocht die je hebt geselecteerd."},
+    "sess_duplicate": {"en": "Each corner can be chosen once.", "nl": "Elke bocht kan een keer gekozen worden."},
+    "sess_done": {"en": "You have completed all sessions. Thank you.", "nl": "Je hebt alle sessies afgerond. Dank je wel."},
+    "sess_summary": {"en": "Summary per corner", "nl": "Samenvatting per bocht"},
+    "sess_mean": {"en": "Mean loss (s)", "nl": "Gemiddeld verlies (s)"},
+    "sess_spread": {"en": "Spread (s)", "nl": "Spreiding (s)"},
+    "sess_worst": {"en": "Largest loss (s)", "nl": "Grootste verlies (s)"},
+    "sess_off": {"en": "Laps off track", "nl": "Rondes buiten de baan"},
+    "previous_session": {"en": "Previous session", "nl": "Vorige sessie"},
+    "next_session": {"en": "Next session", "nl": "Volgende sessie"},
+    "dash_sessions": {"en": "Sessions completed", "nl": "Sessies afgerond"},
     "no_package": {"en": "No review package was found. Create it first with: km review-package",
                    "nl": "Er is geen beoordelingspakket gevonden. Maak het eerst aan met: km review-package"},
     "intro": {
         "en": """
 **What you are asked to do**
 
-You will see a series of segments. A segment is one corner, or one straight, of one recorded lap in Assetto Corsa Competizione (GT3). For each segment you see the speed, throttle, brake and steering of that lap, together with the fastest lap of the same driver on the same circuit as a reference.
+The review has two parts. In the first part (Sessions) you look at a few complete sessions and choose the corners you would discuss with the driver. In the second part (Review) you judge single segments.
+
+In the second part you will see a series of segments. A segment is one corner, or one straight, of one recorded lap in Assetto Corsa Competizione (GT3). For each segment you see the speed, throttle, brake and steering of that lap, together with the fastest lap of the same driver on the same circuit as a reference.
 
 For each segment you answer three questions:
 
@@ -39,7 +68,9 @@ You can add a short comment. There are no right or wrong answers: your own judge
         "nl": """
 **Wat er van je gevraagd wordt**
 
-Je krijgt een reeks segmenten te zien. Een segment is een bocht, of een recht stuk, van een opgenomen ronde in Assetto Corsa Competizione (GT3). Per segment zie je de snelheid, het gas, de rem en het stuur van die ronde, samen met de snelste ronde van dezelfde coureur op hetzelfde circuit als referentie.
+De beoordeling heeft twee delen. In het eerste deel (Sessies) bekijk je een paar volledige sessies en kies je de bochten die je met de coureur zou bespreken. In het tweede deel (Beoordelen) beoordeel je losse segmenten.
+
+In het tweede deel krijg je een reeks segmenten te zien. Een segment is een bocht, of een recht stuk, van een opgenomen ronde in Assetto Corsa Competizione (GT3). Per segment zie je de snelheid, het gas, de rem en het stuur van die ronde, samen met de snelste ronde van dezelfde coureur op hetzelfde circuit als referentie.
 
 Bij elk segment beantwoord je drie vragen:
 

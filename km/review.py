@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score
 
-from . import labelling
+from . import labelling, moments
 from .advice import advice_text
 from .config import Paths
 from .evaluation import top_b
@@ -89,8 +89,9 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
     _, data, circuits = load_prepared(cfg)
     pred = pd.read_parquet(paths.prepared / "predictions.parquet")
     frame = windows.merge(pred[["window_id", "score_xgb", "type_xgb", "weak_label", "weak_type"]], on="window_id")
-    frame["in_model"] = top_b(frame, "score_xgb", rv["budget"])
-    frame["in_baseline"] = top_b(frame, "score_time_loss" if "score_time_loss" in frame else "time_loss", rv["budget"])
+    spread = cfg["evaluation"].get("max_per_segment")
+    frame["in_model"] = top_b(frame, "score_xgb", rv["budget"], spread)
+    frame["in_baseline"] = top_b(frame, "time_loss", rv["budget"], spread)
     frame = frame[~frame["is_reference"]]
     frame["group"] = np.where(frame["in_model"], "model", np.where(frame["in_baseline"], "baseline", "neither"))
     pools = {"model": frame[frame["group"] == "model"], "baseline": frame[frame["group"] == "baseline"],
@@ -135,8 +136,62 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
     _traces(items, data, lengths, cfg).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():
         make_codes(paths.review, rv["n_experts"])
-    return {"windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
+    session_info = _session_task(frame, data, lengths, experts, cfg, rng, paths)
+    return {"sessions": session_info, "windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
             "groups": items["group"].value_counts().to_dict()}
+
+
+def _session_task(frame, data, lengths, experts, cfg, rng, paths) -> dict:
+    """Second task for the experts: choose the moments of a whole session themselves.
+
+    The expert sees every corner of every lap of a session and picks at most B corners to
+    discuss. Nothing from the model is shown. This gives what the window review cannot give:
+    how many of the moments an expert would raise are also found by the model.
+    """
+    rv = cfg["review"]
+    n = data.shape[1]
+    sessions = rng.permutation(sorted(frame["session_id"].unique()))
+    need = rv["sessions_shared"] + len(experts) * (rv["sessions_per_expert"] - rv["sessions_shared"])
+    sessions = list(sessions[:min(need, len(sessions))])
+    shared, rest = sessions[:rv["sessions_shared"]], sessions[rv["sessions_shared"]:]
+    keys = {sid: f"S{k + 1:02d}" for k, sid in enumerate(rng.permutation(sessions))}
+    own = rv["sessions_per_expert"] - len(shared)
+    assignments = []
+    for e, expert in enumerate(experts):
+        mine = list(shared) + [rest[(e * own + k) % len(rest)] for k in range(own)] if rest else list(shared)
+        for position, sid in enumerate(rng.permutation(list(dict.fromkeys(mine)))):
+            assignments.append(dict(expert_id=expert, position=position, session_key=keys[sid], shared=sid in shared))
+
+    corners = frame[frame["session_id"].isin(sessions) & (frame["is_corner"] == 1)].copy()
+    corners["session_key"] = corners["session_id"].map(keys)
+    corners["lap_no"] = corners.groupby("session_id")["lap"].transform(lambda x: pd.factorize(x, sort=True)[0] + 1)
+    cols = ["session_key", "circuit", "segment", "segment_name", "lap_no", "seg_time", "ref_seg_time", "time_loss",
+            "exit_loss", "total_loss", "tyres_out_max", "start_idx"]
+    corners[cols].to_parquet(paths.review / "session_items.parquet", index=False)
+
+    points = rv["session_trace_points"]
+    parts = []
+    for r in corners.itertuples():
+        idx = np.linspace(r.start_idx, r.end_idx - 1, points).astype(int)
+        base = dict(session_key=r.session_key, segment=r.segment, dist_m=(idx - r.start_idx) * lengths[r.circuit] / n)
+        lap = pd.DataFrame(dict(base, lap_no=r.lap_no, **{c: data[r.lap_row][idx, CH[c]] for c in TRACE_COLUMNS}))
+        parts.append(lap)
+        if r.lap_no == 1:                        # the reference trace is stored once per corner, as lap 0
+            parts.append(pd.DataFrame(dict(base, lap_no=0, **{c: data[r.ref_row][idx, CH[c]] for c in TRACE_COLUMNS})))
+    pd.concat(parts, ignore_index=True).astype({c: "float32" for c in TRACE_COLUMNS}).to_parquet(
+        paths.review / "session_traces.parquet", index=False)
+    pd.DataFrame(assignments).to_parquet(paths.review / "session_assignments.parquet", index=False)
+
+    # What the model and the baseline would select in these sessions. For the researcher only.
+    scored = frame[frame["session_id"].isin(sessions)]
+    chosen = moments.select(moments.session_moments(scored, cfg, "score_xgb", "type_xgb"), rv["budget"])
+    model = chosen[["session_id", "segment", "type", "rank", "expected_gain", "pattern"]].assign(source="model") \
+        if len(chosen) else pd.DataFrame(columns=["session_id", "segment", "type", "rank", "expected_gain", "pattern", "source"])
+    baseline = moments.baseline_moments(scored, rv["budget"]).assign(source="baseline", pattern="")
+    private = pd.concat([model, baseline[model.columns]], ignore_index=True)
+    private["session_key"] = private["session_id"].map(keys)
+    private.to_parquet(paths.review / "session_key_PRIVATE.parquet", index=False)
+    return {"sessions": len(sessions), "shared": len(shared)}
 
 
 # ---------------------------------------------------------------- responses
@@ -153,6 +208,17 @@ CREATE TABLE IF NOT EXISTS responses (
     seconds REAL,                       -- time spent on the window
     saved_at TEXT NOT NULL,
     PRIMARY KEY (expert_id, window_id)
+);
+CREATE TABLE IF NOT EXISTS session_picks (
+    expert_id TEXT NOT NULL,
+    session_key TEXT NOT NULL,
+    rank INTEGER NOT NULL,              -- 1 = most important; 0 = the expert would discuss nothing
+    segment TEXT,
+    type TEXT,
+    comment TEXT,
+    seconds REAL,
+    saved_at TEXT NOT NULL,
+    PRIMARY KEY (expert_id, session_key, rank)
 );
 CREATE TABLE IF NOT EXISTS expert_profile (
     expert_id TEXT PRIMARY KEY,
@@ -176,6 +242,21 @@ def save_response(review_dir: Path, expert_id: str, window_id: str, relevant: bo
         con.execute("INSERT OR REPLACE INTO responses VALUES (?,?,?,?,?,?,?,?,?)",
                     (expert_id, window_id, int(bool(relevant)), as_int(type_correct), correct_type or None,
                      as_int(advice_ok), comment.strip(), float(seconds), time.strftime("%Y-%m-%dT%H:%M:%S")))
+
+
+def save_session_picks(review_dir: Path, expert_id: str, session_key: str, picks: list[dict], seconds: float) -> None:
+    """Store the corners an expert selected for a session. An empty list is stored as 'nothing to discuss'."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    rows = [(expert_id, session_key, k + 1, p["segment"], p.get("type"), (p.get("comment") or "").strip(), float(seconds), now)
+            for k, p in enumerate(picks)] or [(expert_id, session_key, 0, None, None, "", float(seconds), now)]
+    with connect(review_dir) as con:
+        con.execute("DELETE FROM session_picks WHERE expert_id = ? AND session_key = ?", (expert_id, session_key))
+        con.executemany("INSERT INTO session_picks VALUES (?,?,?,?,?,?,?,?)", rows)
+
+
+def load_session_picks(review_dir: Path) -> pd.DataFrame:
+    with connect(review_dir) as con:
+        return pd.read_sql_query("SELECT * FROM session_picks", con)
 
 
 def save_profile(review_dir: Path, expert_id: str, answers_json: str) -> None:
@@ -203,6 +284,97 @@ def fleiss_kappa(table: np.ndarray) -> float:
     return float("nan") if expected == 1 else float((p_item.mean() - expected) / (1 - expected))
 
 
+def krippendorff_alpha(wide: pd.DataFrame) -> float:
+    """Krippendorff's alpha for nominal ratings (items x raters). Missing ratings are allowed."""
+    values = sorted({v for v in wide.to_numpy().ravel() if not pd.isna(v)})
+    index = {v: k for k, v in enumerate(values)}
+    coincidence = np.zeros((len(values), len(values)))
+    for row in wide.to_numpy():
+        rated = [index[v] for v in row if not pd.isna(v)]
+        if len(rated) < 2:
+            continue
+        for a in range(len(rated)):
+            for b in range(len(rated)):
+                if a != b:
+                    coincidence[rated[a], rated[b]] += 1.0 / (len(rated) - 1)
+    total = coincidence.sum()
+    if total <= 1:
+        return float("nan")
+    marginal = coincidence.sum(axis=0)
+    observed = total - np.trace(coincidence)
+    expected = (marginal.sum() ** 2 - (marginal ** 2).sum()) / (total - 1)
+    return float("nan") if expected == 0 else float(1 - observed / expected)
+
+
+def gwet_ac1(wide: pd.DataFrame) -> float:
+    """Gwet's AC1 for two categories. Less sensitive than kappa to a skewed share of 'yes'."""
+    complete = wide.dropna()
+    if complete.shape[1] < 2 or complete.empty:
+        return float("nan")
+    r = complete.shape[1]
+    yes = complete.sum(axis=1).to_numpy(float)
+    agreement = ((yes * (yes - 1) + (r - yes) * (r - yes - 1)) / (r * (r - 1))).mean()
+    share = yes.sum() / (r * len(complete))
+    chance = 2 * share * (1 - share)
+    return float("nan") if chance == 1 else float((agreement - chance) / (1 - chance))
+
+
+def _mean_pairwise_kappa(wide: pd.DataFrame) -> float:
+    values = []
+    cols = list(wide.columns)
+    for a in range(len(cols)):
+        for b in range(a + 1, len(cols)):
+            pair = wide[[cols[a], cols[b]]].dropna()
+            if len(pair) > 1 and pair[cols[a]].nunique() > 1 and pair[cols[b]].nunique() > 1:
+                values.append(cohen_kappa_score(pair[cols[a]].astype(int), pair[cols[b]].astype(int)))
+    return float(np.mean(values)) if values else float("nan")
+
+
+def _overlap(a: set, b: set) -> dict:
+    return {"recall": len(a & b) / len(a) if a else np.nan, "precision": len(a & b) / len(b) if b else np.nan,
+            "jaccard": len(a & b) / len(a | b) if a | b else np.nan}
+
+
+def analyse_sessions(cfg: dict) -> dict | None:
+    """Compare the corners that experts selected per session with those of the model and the baseline.
+
+    recall     share of the corners an expert selected that the model also selected
+    precision  share of the corners the model selected that the expert also selected
+    The overlap between two experts on the shared sessions shows how much agreement is attainable.
+    """
+    paths = Paths.from_config(cfg)
+    picks = load_session_picks(paths.review)
+    key_path = paths.review / "session_key_PRIVATE.parquet"
+    if picks.empty or not key_path.exists():
+        return None
+    key = pd.read_parquet(key_path)
+    chosen = {(e, s): set(g.loc[g["rank"] > 0, "segment"]) for (e, s), g in picks.groupby(["expert_id", "session_key"])}
+    rows = []
+    for (expert, session), mine in chosen.items():
+        for source in ("model", "baseline"):
+            theirs = key[(key["session_key"] == session) & (key["source"] == source)]
+            row = dict(expert_id=expert, session_key=session, source=source, n_expert=len(mine), **_overlap(mine, set(theirs["segment"])))
+            if source == "model":
+                both = picks[(picks["expert_id"] == expert) & (picks["session_key"] == session) & (picks["rank"] > 0)].merge(
+                    theirs[["segment", "type"]], on="segment", suffixes=("_expert", "_model"))
+                row["type_match"] = float((both["type_expert"] == both["type_model"]).mean()) if len(both) else np.nan
+            rows.append(row)
+    table = pd.DataFrame(rows)
+    pairs = []
+    for session in {s for _, s in chosen}:
+        raters = sorted(e for e, s in chosen if s == session)
+        for a in range(len(raters)):
+            for b in range(a + 1, len(raters)):
+                pairs.append(_overlap(chosen[(raters[a], session)], chosen[(raters[b], session)])["jaccard"])
+    summary = table.groupby("source")[["recall", "precision", "jaccard"]].mean()
+    out = {"table": table, "summary": summary,
+           "expert_expert_jaccard": float(np.nanmean(pairs)) if pairs else float("nan"),
+           "type_match": float(table.loc[table["source"] == "model", "type_match"].mean())}
+    table.to_csv(paths.results / "sq4_session_task.csv", index=False)
+    summary.assign(expert_expert_jaccard=out["expert_expert_jaccard"]).to_csv(paths.results / "sq4_session_summary.csv")
+    return out
+
+
 def analyse(cfg: dict) -> dict:
     """Agreement among experts and between experts and the model, and the reference labels."""
     paths = Paths.from_config(cfg).ensure()
@@ -222,6 +394,13 @@ def analyse(cfg: dict) -> dict:
     if wide.shape[1] >= 2 and len(wide):
         counts = np.column_stack([(wide == 0).sum(axis=1), (wide == 1).sum(axis=1)])
         out["fleiss_kappa_relevance"] = fleiss_kappa(counts)
+        # Interval from resampling the shared windows.
+        rng = np.random.default_rng(0)
+        boot = [fleiss_kappa(counts[rng.integers(0, len(counts), len(counts))]) for _ in range(1000)]
+        out["fleiss_kappa_ci_low"], out["fleiss_kappa_ci_high"] = (float(v) for v in np.nanpercentile(boot, [2.5, 97.5]))
+        out["krippendorff_alpha_relevance"] = krippendorff_alpha(wide)
+        out["gwet_ac1_relevance"] = gwet_ac1(wide)
+        out["mean_pairwise_kappa_experts"] = _mean_pairwise_kappa(wide)      # the attainable level for the model
         out["shared_windows_complete"], out["experts"] = int(len(wide)), int(wide.shape[1])
 
     # Agreement of every expert with the selection of the model and of the baseline.
@@ -274,5 +453,12 @@ def analyse(cfg: dict) -> dict:
     by_group.to_csv(paths.results / "sq4_by_group.csv", index=False)
     lf.to_csv(paths.results / "sq4_labelling_function_precision.csv", index=False)
     pd.Series(out).to_csv(paths.results / "sq4_summary.csv", header=["value"])
+    out["mean_kappa_model_vs_expert"] = float(per_expert["cohen_kappa_model"].mean())
+    out["mean_kappa_baseline_vs_expert"] = float(per_expert["cohen_kappa_baseline"].mean())
+    pd.Series(out).to_csv(paths.results / "sq4_summary.csv", header=["value"])
+    sessions = analyse_sessions(cfg)
+    if sessions is not None:
+        out.update(session_task=sessions["summary"], session_expert_expert_jaccard=sessions["expert_expert_jaccard"],
+                   session_type_match=sessions["type_match"])
     out.update(per_expert=per_expert, by_group=by_group, labelling_functions=lf)
     return out

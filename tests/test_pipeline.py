@@ -151,7 +151,7 @@ def test_experiments_and_expert_review(study):
     assert {"xgb", "time_loss", "random", "labelling_functions"} <= set(out["metrics"]["model"])
 
     info = review.build_package(cfg)
-    assert all(n == 20 for n in info["per_expert"].values())
+    assert all(n == 20 for n in info["per_expert"].values()) and info["sessions"]["shared"] == 2
     items = pd.read_parquet(paths.review / "items.parquet")
     assert not {"group", "driver", "level", "session_id", "in_model", "score_xgb"} & set(items.columns)   # blind
     codes = pd.read_csv(paths.review / "access_codes_PRIVATE.csv")
@@ -179,4 +179,126 @@ def test_experiments_and_expert_review(study):
     assert out["summary"]["evaluated_against"].startswith("expert")
     out = experiments.sq3(cfg)
     assert list(out["training_size"]["fraction"]) == [0.5, 1.0]
+    assert list(out["training_drivers"]["training_drivers"]) == [1, 2]
     assert "label_quality" in out and set(out["label_quality"]["strategy"]) == {"random", "uncertainty"}
+
+    # Session task: every expert selects corners, the analysis compares them with the model.
+    sessions = pd.read_parquet(paths.review / "session_assignments.parquet")
+    session_items = pd.read_parquet(paths.review / "session_items.parquet")
+    assert not {"driver", "session_id", "level"} & set(session_items.columns)
+    private = pd.read_parquet(paths.review / "session_key_PRIVATE.parquet")
+    for r in sessions.itertuples():
+        model = private[(private["session_key"] == r.session_key) & (private["source"] == "model")]
+        picks = [dict(segment=m.segment, type=m.type) for m in model.head(2).itertuples()]
+        review.save_session_picks(paths.review, r.expert_id, r.session_key, picks, 60.0)
+    review.save_session_picks(paths.review, "E01", sessions["session_key"].iloc[0], [], 5.0)   # nothing to discuss
+    task = review.analyse_sessions(cfg)
+    assert task["summary"].loc["model", "recall"] > 0.8 and 0 <= task["expert_expert_jaccard"] <= 1
+    result = review.analyse(cfg)
+    assert {"krippendorff_alpha_relevance", "gwet_ac1_relevance", "mean_pairwise_kappa_experts"} <= set(result)
+
+    from km import figures, qc
+    made = figures.make_figures(cfg)
+    assert {"sq2_precision_recall", "sq3_training_size", "sq1_labelling_functions"} <= set(made)
+    table = qc.session_quality(cfg)
+    assert len(table) == 12 and (table["laps_usable"] == 7).all() and table["rate_hz"].between(59, 61).all()
+
+
+def test_dataset_export_carries_no_internal_identifiers(study, tmp_path):
+    from km import export
+    cfg = study["cfg"]
+    experiments.sq1(cfg)
+    out, key = tmp_path / "public", tmp_path / "ut" / "key.csv"
+    with pytest.raises(ValueError):
+        export.export_dataset(cfg, out, out / "key.csv")
+    info = export.export_dataset(cfg, out, key, seed=1)
+    assert info["sessions"] == 12 and key.exists() and not list(out.rglob("key.csv"))
+    internal = set(study["windows"]["driver"]) | set(study["windows"]["session_id"])
+    for path in out.rglob("*"):
+        if path.suffix == ".parquet":
+            frame = pd.read_parquet(path)
+            for col in frame.select_dtypes(include=["object", "string"]).columns:
+                values = set(frame[col].dropna().astype(str))
+                assert not values & internal, (path.name, col)
+                assert not any(v.startswith(tuple(study["windows"]["session_id"].unique())) for v in values), (path.name, col)
+        elif path.is_file() and path.suffix in (".json", ".csv", ".md"):
+            text = path.read_text(encoding="utf-8")
+            assert "synthetic_L" not in text and "started_at" not in text and "D01_" not in text
+    keys = pd.read_csv(key)
+    assert set(keys.loc[keys["kind"] == "driver", "internal_id"]) == set(study["windows"]["driver"])
+    public = pd.read_parquet(out / "derived" / "windows.parquet")
+    assert len(public) == len(study["windows"]) and public["window_id"].is_unique
+    sums = (out / "SHA256SUMS").read_text().splitlines()
+    assert len(sums) == info["files"] - 1
+
+
+def test_reference_modes(study):
+    cfg = study["cfg"]
+    base = study["windows"]
+    for mode in ("ideal", "expert"):
+        w = features.build_windows(cfg, reference=mode)
+        assert list(w["window_id"]) == list(base["window_id"]) and (w["reference"] == mode).all()
+    ideal = features.load_windows(cfg, "ideal")
+    corners = ideal[ideal["is_corner"] == 1]
+    assert corners["time_loss"].mean() > base.loc[base["is_corner"] == 1, "time_loss"].mean()   # a stricter reference
+    expert = features.load_windows(cfg, "expert")
+    other = expert[expert["level"] != "high"]
+    laps = study["laps"].reset_index(drop=True)
+    assert (laps.loc[other["ref_row"], "level"] == "high").all()
+    assert (laps.loc[other["ref_row"], "driver"].to_numpy() != other["driver"].to_numpy()).all()
+
+
+def test_label_model_downweights_an_unreliable_function():
+    rng = np.random.default_rng(0)
+    truth = rng.random(4000) < 0.2
+    good = [(truth & (rng.random(4000) < 0.6)) | (~truth & (rng.random(4000) < 0.01)) for _ in range(3)]
+    noisy = rng.random(4000) < 0.15                               # fires regardless of the truth
+    votes = np.column_stack(good + [noisy]).astype(int)
+    model = labelling.LabelModel().fit(votes)
+    precision = model.fire_pos * model.prior / (model.fire_pos * model.prior + model.fire_neg * (1 - model.prior))
+    assert precision[:3].min() > 0.8 and precision[3] < 0.5
+    only_noisy = model.predict_proba(np.array([[0, 0, 0, 1]]))[0]
+    one_good = model.predict_proba(np.array([[1, 0, 0, 0]]))[0]
+    assert only_noisy < 0.5 < one_good
+
+
+def test_selection_is_spread_over_corners_and_schemes_split_correctly(study):
+    cfg, w = study["cfg"], study["windows"]
+    frame = pd.DataFrame({"session_id": ["a"] * 4, "segment": ["T1", "T1", "T2", "T3"], "score": [0.9, 0.8, 0.5, 0.4]})
+    assert top_b(frame, "score", 2).tolist() == [True, True, False, False]
+    assert top_b(frame, "score", 2, max_per_segment=1).tolist() == [True, False, True, False]
+    for scheme, column in (("loco", "circuit"), ("lolo", "level")):
+        folds = driver_folds(w, cfg, scheme)
+        assert len(folds) == w[column].nunique()
+        for _, train, test in folds:
+            assert not set(w.loc[train, column]) & set(w.loc[test, column])
+
+
+def test_session_moments_and_statistics(study):
+    from km import moments
+    from km.evaluation import calibration, paired_permutation
+    cfg, w = study["cfg"], study["windows"]
+    scored = w.assign(score=(w["time_loss"] > 0.3).astype(float), type="K1")
+    found = moments.session_moments(scored, cfg)
+    assert (found["n_flagged"] <= found["n_laps"]).all() and set(found["pattern"]) <= {"structural", "incidental"}
+    chosen = moments.select(found, 3)
+    assert chosen.groupby("session_id").size().max() <= 3
+    assert not chosen.duplicated(["session_id", "segment"]).any()
+    assert "laps" in moments.describe(chosen.iloc[0], "en") and "rondes" in moments.describe(chosen.iloc[0], "nl")
+    test = paired_permutation([0.9, 0.8, 0.85, 0.7], [0.5, 0.6, 0.55, 0.4])
+    assert test["p_value"] == pytest.approx(2 / 16) and test["mean_difference"] > 0
+    frame = pd.DataFrame({"p": [0.1] * 50 + [0.9] * 50, "y": [0.0] * 45 + [1.0] * 5 + [1.0] * 45 + [0.0] * 5})
+    _, summary = calibration(frame, "p", "y")
+    assert summary["ece"] == pytest.approx(0.0, abs=1e-9)
+    alpha = review.krippendorff_alpha(pd.DataFrame([[1, 1], [0, 0], [1, 1], [0, 0]]))
+    assert alpha == pytest.approx(1.0)
+
+
+def test_generalisation_and_ablation_run(study):
+    cfg = study["cfg"]
+    gen = experiments.generalisation(cfg)
+    assert set(gen["scheme"]) == {"lodo", "loco", "lolo"} and gen.loc[gen["fold"] == "all", "pr_auc"].notna().all()
+    ref = experiments.reference_study(cfg)
+    assert list(ref["reference"]) == ["own_best", "ideal", "expert"]
+    abl = experiments.ablation(cfg)
+    assert len(abl["features"]) == 10 and len(abl["labelling_functions"]) == 9 and len(abl["aggregation"]) == 4

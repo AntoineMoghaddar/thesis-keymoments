@@ -32,12 +32,15 @@ features:
   gas_on: 0.20
   gas_full: 0.95
   dtw_points: 32
+  reference: own_best     # own_best = fastest own lap, ideal = best own segments, expert = fastest lap of another experienced driver
   lookaround: 0.015       # share of the lap searched before and after a corner for early braking and late throttle
 
 windows:
   include_straights: true
 
 labelling:
+  aggregation: any        # any = key moment when a function fires, label_model = learned reliability per function
+  type_rule: priority     # priority = order below, strongest = the function that exceeds its threshold by most
   fit_on: all             # all = thresholds from all windows, train = from the training drivers of a fold
   min_time_loss_s: 0.03   # K1 to K6 only fire when the segment was slower than on the reference lap
   # Percentile of the per-segment distribution above which a labelling function fires,
@@ -72,6 +75,7 @@ model:
 evaluation:
   scheme: lodo            # lodo = leave-one-driver-out, fixed = fixed test drivers
   fixed_test_drivers: []  # used when scheme is "fixed", e.g. [D03, D05, D08]
+  max_per_segment: 1      # at most this many selected windows per corner and session (null = no limit)
   budgets: [1, 2, 3, 4, 5]  # candidate values for B (moments shown per session)
   bootstrap: 1000
   seeds: [0, 1, 2, 3, 4]
@@ -81,7 +85,14 @@ evaluation:
   sq3_models: [xgb]       # add seq to repeat the data requirement runs with the sequence model
   review_steps: [0, 25, 50, 100, 200]   # expert labels added to the weak labels (SQ3, label quality)
 
+moments:
+  threshold: 0.5          # model score from which a window counts as flagged
+  structural_share: 0.4   # share of the laps of a session from which a pattern counts as structural
+
 review:
+  sessions_per_expert: 4  # sessions in which the expert selects the moments to discuss
+  sessions_shared: 2      # of which given to every expert
+  session_trace_points: 60
   n_experts: 6
   per_expert: 60          # windows shown to each expert
   shared: 20              # of which reviewed by every expert
@@ -89,3 +100,7 @@ review:
   mix: {model: 0.4, baseline: 0.3, neither: 0.3}
   trace_points: 240       # samples per plotted trace
   context: 0.35           # track shown before and after the segment, as a share of its length
+
+export:
+  questionnaire_items: []   # questionnaire answers published with the dataset; free text is never published
+  licence: "to be decided"
