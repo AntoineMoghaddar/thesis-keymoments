@@ -31,7 +31,7 @@ def session_quality(cfg: dict) -> pd.DataFrame:
                    max_gap_s=round(float(gaps.max()) if len(gaps) else 0.0, 3), laps_recorded=len(laps),
                    laps_usable=len(usable), best_lap=min(times, default=None),
                    median_lap=float(pd.Series(times).median()) if times else None,
-                   laps_off_track=sum(lap["tyres_out_max"] >= 3 for lap in usable),
+                   laps_invalid=sum(not lap["game_valid"] for lap in usable),
                    max_lap_time_error_s=round(clock_error, 3), **{k: meta.get(k) for k in SETTINGS})
         notes = []
         if not meta.get("finished", True):

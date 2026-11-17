@@ -356,3 +356,38 @@ def test_review_tool_asks_relevance_before_showing_the_type(study, monkeypatch):
     assert not app.exception and not app.error
     saved = review.load_responses(paths.review).query("expert_id == 'E01' and window_id == @first").iloc[0]
     assert saved["relevant"] == 1 and saved["type_correct"] == 1 and saved["advice_ok"] == 0
+
+
+def test_track_limits_are_found_from_lap_validity_alone(study):
+    """ACC left the tyres-out field at zero; the moment the lap becomes invalid has to be enough."""
+    _, data, _ = preprocess.load_prepared(study["cfg"])
+    lap = data[0].copy()
+    lap[:, preprocess.CH["tyres_out"]] = 0
+    lap[:, preprocess.CH["valid"]] = 1
+    lap[900:, preprocess.CH["valid"]] = 0                              # invalidated at grid point 900
+    assert features.left_track(lap, 850, 950) and not features.left_track(lap, 700, 850)
+    assert not features.left_track(lap, 950, 1100)                     # already invalid: the excursion was earlier
+    w = study["windows"]
+    assert set(w["off_track"]) <= {0.0, 1.0} and w["off_track"].sum() > 0
+    labels = labelling.label(w.assign(tyres_out_max=0.0), study["cfg"])
+    assert (labels.loc[(w["off_track"] > 0).to_numpy(), "K7"] == 1).all()
+
+
+def test_features_survive_a_second_brake_application(study):
+    """Seen in a real recording: braking, releasing and braking harder again inside one segment."""
+    _, data, _ = preprocess.load_prepared(study["cfg"])
+    lap = data[0].copy()
+    brake = preprocess.CH["brake"]
+    lap[:, brake] = 0.0
+    lap[100:120, brake] = 0.4
+    lap[140:160, brake] = 0.9
+    lap[:, preprocess.CH["speed"]] = 200.0
+    lap[150, preprocess.CH["speed"]] = 90.0
+    out = features._phase(lap, 90, 200, 80, 220, 2.0, study["cfg"]["features"])
+    assert out["peak_brake"] == pytest.approx(0.4) and out["brake_onset_m"] == pytest.approx(20.0)
+
+
+def test_advice_for_a_cut_corner_does_not_speak_of_lost_time():
+    row = {"segment_name": "Turn 1", "time_loss": -8.4, "off_track": 1.0}
+    assert "8.40 s faster" in advice_text(row, "K7", "en") and "sneller" in advice_text(row, "K7", "nl")
+    assert "lost" in advice_text({"segment_name": "Turn 1", "time_loss": 1.2, "off_track": 1.0}, "K7", "en")

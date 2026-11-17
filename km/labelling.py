@@ -109,7 +109,7 @@ def apply(windows: pd.DataFrame, thresholds: pd.DataFrame, cfg: dict) -> pd.Data
     vote("K4", [exceeds("K4_pickup")], extra=(lifts, 1.0 + w["d_throttle_lifts"].fillna(0).to_numpy()), gate=slower_exit)
     vote("K5", [exceeds("K5_slip"), exceeds("K5_tc")], gate=slower_exit)
     vote("K6", [exceeds("K6_steer"), exceeds("K6_line")], gate=slower)
-    off = (w["tyres_out_max"] >= lab["K7"]["tyres_out"]).to_numpy()
+    off = (w["tyres_out_max"] >= lab["K7"]["tyres_out"]).to_numpy() | (w["off_track"] > 0).to_numpy()
     vote("K7", [exceeds("K7_loss")], extra=(off, 2.0), needs_corner=False)
     ratio = (w["time_cv_ratio"] / lab["K8"]["ratio"]).fillna(0).to_numpy()
     inconsistent = ((ratio > 1) & (w["seg_time"] > w["session_median_time"]).to_numpy())

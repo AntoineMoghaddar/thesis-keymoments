@@ -181,7 +181,7 @@ def _session_task(frame, data, lengths, experts, cfg, rng, paths) -> dict:
     corners["session_key"] = corners["session_id"].map(keys)
     corners["lap_no"] = corners.groupby("session_id")["lap"].transform(lambda x: pd.factorize(x, sort=True)[0] + 1)
     cols = ["session_key", "circuit", "segment", "segment_name", "lap_no", "seg_time", "ref_seg_time", "time_loss",
-            "exit_loss", "total_loss", "tyres_out_max", "start_idx"]
+            "exit_loss", "total_loss", "tyres_out_max", "off_track", "start_idx"]
     corners[cols].to_parquet(paths.review / "session_items.parquet", index=False)
 
     points = rv["session_trace_points"]

@@ -11,7 +11,7 @@ from .schema import list_sessions
 
 # Channels kept after resampling. The order is the order of the last axis of the array.
 CHANNELS = ["lap_t", "speed", "gas", "brake", "steer", "slip_rear", "slip_front", "tc_on", "abs_on",
-            "tyres_out", "yaw_rate", "acc_lat", "acc_lon", "x", "z"]
+            "tyres_out", "valid", "yaw_rate", "acc_lat", "acc_lon", "x", "z"]
 CH = {name: i for i, name in enumerate(CHANNELS)}
 
 
@@ -91,7 +91,9 @@ def split_laps(frame: pd.DataFrame, cfg: dict) -> list[dict]:
             clock_time = lap_time = float(t[-1] - t[0])
         laps.append(dict(lap=int(n), lap_time=lap_time, clock_time=clock_time, n_samples=len(g),
                          tyres_out_max=int(g["tyres_out"].max()),
-                         game_valid=bool(g["valid_lap"].iloc[-1] > 0),
+                         # The simulator resets the flag just before the lap counter changes, so the ends are left out.
+                         game_valid=bool(g["valid_lap"].iloc[max(1, len(g) // 200):-max(1, len(g) // 200)].min() > 0)
+                         if len(g) > 10 else bool(g["valid_lap"].min() > 0),
                          usable=not reasons, reason="; ".join(reasons)))
     usable = [lap for lap in laps if lap["usable"]]
     for lap in usable[: cfg["preprocess"]["warmup_laps"]]:
@@ -117,7 +119,7 @@ def resample_lap(g: pd.DataFrame, lap_time: float, n_points: int) -> tuple[np.nd
         "gas": g["gas"], "brake": g["brake"], "steer": g["steer"],
         "slip_rear": np.maximum(g["wslip_rl"].abs(), g["wslip_rr"].abs()),
         "slip_front": np.maximum(g["wslip_fl"].abs(), g["wslip_fr"].abs()),
-        "tc_on": g["tc_on"], "abs_on": g["abs_on"], "tyres_out": g["tyres_out"],
+        "tc_on": g["tc_on"], "abs_on": g["abs_on"], "tyres_out": g["tyres_out"], "valid": g["valid_lap"],
         "yaw_rate": g["yaw_rate"], "acc_lat": g["acc_x"], "acc_lon": g["acc_z"],
         "x": g["x"], "z": g["z"],
     }

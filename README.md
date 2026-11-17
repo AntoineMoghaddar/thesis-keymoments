@@ -60,13 +60,28 @@ under the circuit name `synth_a`.
 
 A single program for the lab computer can be built with `logger\build_exe.bat`.
 
+### What the test recordings against ACC showed
+
+Three recordings were made on 17 November 2026 (Aston Martin V8 Vantage GT3, Monza).
+
+- Sample rate 60.0 Hz without gaps; lap times equal to those of the game to within one sample.
+- Car and track are reported as `amr_v8_vantage_gt3` and `monza`.
+- **Use Hotlap mode.** There are no opponents, fuel is fixed at 10 litres, tyres do not wear and a lap is
+  invalidated when the track limits are exceeded. In a Quick Race the lap stays valid after cutting a chicane.
+- Hotlap has a flying start. The lap counter of the game stays at zero during the run-up and the first timed
+  lap; the pipeline splits the run-up off at the first crossing of the line.
+- The field for the number of tyres outside the track stayed at zero in every recording. Leaving the track
+  is therefore taken from the moment at which the game invalidates the lap.
+- Traction control and ABS activity are in the float fields `tc` and `abs`; the integer fields stay at zero.
+- The pit flags could not be checked, because none of the recordings entered the pit lane.
+
 ## A recording visit
 
 1. Fill in the pseudonym. Tick the consent box after the form has been signed.
 2. Let the participant fill in the questionnaire (button in the logger). Select the experience level afterwards.
 3. Choose the circuit. The session number is proposed from the recordings that already exist.
-4. Start the recording when the car is in the pit, stop it after the last lap has been completed
-   (drive a short distance into the next lap, otherwise the last lap counts as not completed).
+4. Start the game in Hotlap mode. Start the recording before driving off, and stop it after the last lap has
+   been completed (drive a short distance into the next lap, otherwise the last lap counts as not completed).
 5. After the visit: "Copy data to university storage".
 
 Samples are written to disk every ten seconds, so a crash costs at most the last seconds.
@@ -225,7 +240,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 31 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 36 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

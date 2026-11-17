@@ -24,7 +24,7 @@ FEATURE_GROUPS = {
     "traction": ["slip_exit_max", "d_slip_exit_max", "tc_frac", "yaw_rate_max"],
     "steering_line": ["steer_integral", "d_steer_integral", "steer_reversals", "d_steer_reversals",
                       "line_dev_max", "line_dev_mean"],
-    "incident": ["tyres_out_max"],
+    "incident": ["tyres_out_max", "off_track"],
     "consistency": ["time_cv_ratio"],
 }
 TYPE_GROUP = {"K1": "braking", "K2": "braking", "K3": "speed", "K4": "throttle", "K5": "traction",
@@ -39,7 +39,7 @@ MODEL_FEATURES = [
     "d_throttle_pickup_m", "d_full_throttle_m", "throttle_lifts", "d_throttle_lifts",
     "steer_integral", "d_steer_integral", "steer_reversals", "d_steer_reversals",
     "slip_exit_max", "d_slip_exit_max", "tc_frac", "abs_frac",
-    "line_dev_max", "line_dev_mean", "tyres_out_max", "yaw_rate_max", "dtw_speed",
+    "line_dev_max", "line_dev_mean", "tyres_out_max", "off_track", "yaw_rate_max", "dtw_speed",
     "time_cv_ratio", "is_corner",
 ]
 
@@ -92,6 +92,19 @@ def _reversals(steer: np.ndarray, amplitude: float = 0.02) -> int:
     return int(count)
 
 
+def left_track(lap: np.ndarray, a: int, b: int) -> bool:
+    """Did the car exceed the track limits in this segment?
+
+    Two signals are used. The simulator invalidates the lap at the moment the limits are exceeded,
+    so a lap that is still valid at the start of the segment and no longer valid inside it marks
+    the place. The count of tyres outside the track is used as well, although Assetto Corsa
+    Competizione left that field at zero in the test recordings.
+    """
+    valid = lap[a:b, CH["valid"]]
+    invalidated = lap[max(a - 1, 0), CH["valid"]] > 0.5 and valid.min() < 0.5
+    return bool(invalidated or lap[a:b, CH["tyres_out"]].max() >= 3)
+
+
 def _phase(lap: np.ndarray, a: int, b: int, lo: int, hi: int, ds: float, fc: dict) -> dict:
     """Measurements of one lap in one segment. Positions are in metres from the segment start."""
     n = len(lap)
@@ -105,10 +118,12 @@ def _phase(lap: np.ndarray, a: int, b: int, lo: int, hi: int, ds: float, fc: dic
     onset = _first(brake[lo:i_min + 1] > fc["brake_on"])
     if onset is not None:
         onset += lo
-        zone = brake[onset:b]
-        peak = float(zone.max())
+        zone = brake[onset:max(b, onset + 1)]
         released = _first(zone < fc["brake_on"])
         end = onset + (released if released is not None else len(zone) - 1)
+        # The peak of the first brake application. A driver who releases and brakes again later in
+        # the segment would otherwise get a peak that lies outside this application.
+        peak = float(brake[onset:end + 1].max())
         high = np.flatnonzero(brake[onset:end + 1] >= 0.9 * peak) + onset
         out.update(brake_onset_m=(onset - a) * ds, peak_brake=peak,
                    brake_rise_s=t[high[0]] - t[onset], brake_release_s=t[end] - t[high[-1]],
@@ -127,6 +142,7 @@ def _phase(lap: np.ndarray, a: int, b: int, lo: int, hi: int, ds: float, fc: dic
     out["tc_frac"] = float(lap[i_min:b, CH["tc_on"]].mean())
     out["abs_frac"] = float(lap[a:i_min + 1, CH["abs_on"]].mean())
     out["tyres_out_max"] = float(lap[seg, CH["tyres_out"]].max())
+    out["off_track"] = float(left_track(lap, a, b))
     out["yaw_rate_max"] = float(np.abs(lap[seg, CH["yaw_rate"]]).max())
     return out
 
@@ -198,7 +214,7 @@ def _reference_rows(laps: pd.DataFrame, data: np.ndarray, rows: np.ndarray, segs
         for s_i, seg in enumerate(segs):
             a, b = seg["start_idx"], seg["end_idx"]
             times = np.array([_seg_time(data[i], laps.iloc[i]["lap_time"], a, b) for i in rows])
-            off = np.array([data[i][a:b, CH["tyres_out"]].max() >= 3 for i in rows])
+            off = np.array([left_track(data[i], a, b) for i in rows])
             for driver in np.unique(drivers):
                 mine = np.flatnonzero(drivers == driver)
                 ok = mine[~off[mine]] if (~off[mine]).any() else mine

@@ -34,7 +34,7 @@ COLUMN_NOTES = {
     "gas": "throttle input, 0 to 1", "brake": "brake input, 0 to 1", "steer": "steering input, -1 to 1",
     "acc_x": "lateral acceleration (g)", "acc_z": "longitudinal acceleration (g)",
     "tc_on": "traction control intervening", "abs_on": "ABS intervening",
-    "tyres_out": "number of tyres outside the track limits", "valid_lap": "lap still valid according to the simulator",
+    "tyres_out": "number of tyres outside the track limits (the simulator left this at zero)", "valid_lap": "lap still valid according to the simulator",
     "x": "world position (m)", "y": "world position, up (m)", "z": "world position (m)",
 }
 
