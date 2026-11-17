@@ -39,7 +39,7 @@ TEXT = {
     "recording": {"en": "Recording", "nl": "Opname"},
     "rec_on": {"en": "running", "nl": "loopt"},
     "rec_off": {"en": "stopped", "nl": "gestopt"},
-    "laps": {"en": "Laps completed", "nl": "Voltooide rondes"},
+    "laps": {"en": "Full laps recorded", "nl": "Volledige rondes opgenomen"},
     "target": {"en": "target", "nl": "doel"},
     "last_lap": {"en": "Last lap", "nl": "Laatste ronde"},
     "samples": {"en": "Samples", "nl": "Samples"},
