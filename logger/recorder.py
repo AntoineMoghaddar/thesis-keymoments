@@ -40,6 +40,8 @@ class Recorder:
         self._last_flush = time.perf_counter()
         self._t0 = None
         self._first_lap = None
+        self._last_pos = None
+        self._crossings = 0
         self.error: str | None = None
         self.stats = dict(samples=0, laps_completed=0, full_laps=0, last_lap_ms=0, status=0, speed_kmh=0.0, in_pit=0,
                           valid_lap=1, elapsed=0.0, rate=0.0)
@@ -61,8 +63,13 @@ class Recorder:
             s = self.stats
             s["samples"] += 1
             s["laps_completed"] = sample["lap"] - self._first_lap
-            # The lap in which the recording started is never complete, so it is not counted as a full lap.
-            s["full_laps"] = max(s["laps_completed"] - 1, 0)
+            # A full lap lies between two crossings of the line. Counting crossings works for a start from
+            # the pit as well as for a flying start, where the lap counter of the simulator starts later.
+            pos = sample["norm_pos"]
+            if self._last_pos is not None and self._last_pos - pos > 0.5:
+                self._crossings += 1
+            self._last_pos = pos
+            s["full_laps"] = max(self._crossings - 1, 0)
             s["last_lap_ms"], s["speed_kmh"] = sample["last_time_ms"], sample["speed_kmh"]
             s["in_pit"], s["valid_lap"] = sample["in_pit"] or sample["in_pit_lane"], sample["valid_lap"]
             s["elapsed"] = sample["t"]
