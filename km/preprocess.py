@@ -36,9 +36,28 @@ def unique_laps(frame: pd.DataFrame) -> pd.DataFrame:
     from 1000, 2000 and so on, and the first lap after a reset is treated like an out lap.
     """
     resets = (frame["lap"].diff() < 0).cumsum()
-    if resets.max() == 0:
+    if resets.max() > 0:
+        frame = frame.assign(lap=frame["lap"] + 1000 * resets)
+    return split_run_up(frame)
+
+
+def split_run_up(frame: pd.DataFrame) -> pd.DataFrame:
+    """Separate the run-up to the line from the first timed lap.
+
+    In sessions with a flying start the car is placed on the track before the last corner. The
+    lap counter of the simulator then stays at its first value during the run-up and during the
+    whole first timed lap. The samples before the first crossing of the line get their own lap
+    number, one below the first, so that the first timed lap is kept as a lap of its own.
+    """
+    first = frame["lap"].iloc[0]
+    head = frame["lap"].to_numpy() == first
+    pos = frame["norm_pos"].to_numpy()
+    wraps = np.flatnonzero(head[1:] & (np.diff(pos) < -0.5)) + 1
+    if len(wraps) == 0:
         return frame
-    return frame.assign(lap=frame["lap"] + 1000 * resets)
+    lap = frame["lap"].to_numpy().copy()
+    lap[:wraps[0]] = first - 1
+    return frame.assign(lap=lap)
 
 
 def split_laps(frame: pd.DataFrame, cfg: dict) -> list[dict]:

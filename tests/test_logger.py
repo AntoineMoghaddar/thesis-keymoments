@@ -67,6 +67,30 @@ def test_recorder_skips_duplicates_and_pauses(tmp_path):
     assert rec.data_path.parent == tmp_path / "raw" / "D01" / "monza"
 
 
+def test_flying_start_keeps_the_first_timed_lap():
+    """ACC hotlap sessions: the counter stays at 0 during the run-up and the first timed lap."""
+    import numpy as np
+
+    from km.config import load_config
+    from km.preprocess import split_laps
+
+    def stretch(lap, start, stop, t0, n=600):
+        frame = pd.DataFrame({c: 0.0 for c in RAW_COLUMNS}, index=range(n))
+        frame["norm_pos"] = np.linspace(start, stop, n, endpoint=False)
+        frame["t"] = t0 + np.arange(n) / 60.0
+        frame["lap"], frame["valid_lap"], frame["speed_kmh"] = lap, 1, 150.0
+        return frame
+    parts = [stretch(0, 0.87, 1.0, 0, 100), stretch(0, 0.0, 1.0, 100 / 60), stretch(1, 0.0, 1.0, 700 / 60),
+             stretch(2, 0.0, 1.0, 1300 / 60), stretch(3, 0.0, 0.3, 1900 / 60, 200)]
+    frame = pd.concat(parts, ignore_index=True)
+    frame.loc[frame["lap"] >= 1, "last_time_ms"] = 10000
+    cfg = load_config(overrides={"preprocess": {"warmup_laps": 0}})
+    laps = {lap["lap"]: lap for lap in split_laps(frame, cfg)}
+    assert sorted(laps) == [-1, 0, 1, 2, 3]
+    assert not laps[-1]["usable"] and laps[0]["usable"] and laps[1]["usable"] and laps[2]["usable"] and not laps[3]["usable"]
+    assert laps[0]["lap_time"] == 10.0
+
+
 def test_recorder_with_demo_source_feeds_the_pipeline(tmp_path):
     from km.config import load_config
     from km.preprocess import split_laps
