@@ -154,6 +154,7 @@ def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     spread = cfg["evaluation"].get("max_per_segment")
     frame["in_model"] = top_b(frame, "score_xgb", rv["budget"], spread)
     frame["in_baseline"] = top_b(frame, "time_loss", rv["budget"], spread)
+    with_reference = frame            # the session task shows every lap of a session, the reference lap included
     frame = frame[~frame["is_reference"]]
     frame["group"] = np.where(frame["in_model"], "model", np.where(frame["in_baseline"], "baseline", "neither"))
     corners = frame[frame["is_corner"] == 1]
@@ -217,12 +218,12 @@ def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     _traces(items, data, lengths, cfg, flip).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():
         make_codes(paths.review, rv["n_experts"])
-    session_info = _session_task(frame, data, lengths, experts, cfg, rng, paths, flip)
+    session_info = _session_task(frame, with_reference, data, lengths, experts, cfg, rng, paths, flip)
     return {"sessions": session_info, "drawn_from": pd.Series(drawn_from).value_counts().to_dict(), "windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
             "groups": items["group"].value_counts().to_dict()}
 
 
-def _session_task(frame, data, lengths, experts, cfg, rng, paths, flip) -> dict:
+def _session_task(frame, shown, data, lengths, experts, cfg, rng, paths, flip) -> dict:
     """Second task for the experts: choose the moments of a whole session themselves.
 
     The expert sees every corner of every lap of a session and picks at most B corners to
@@ -243,7 +244,7 @@ def _session_task(frame, data, lengths, experts, cfg, rng, paths, flip) -> dict:
         for position, sid in enumerate(rng.permutation(list(dict.fromkeys(mine)))):
             assignments.append(dict(expert_id=expert, position=position, session_key=keys[sid], shared=sid in shared))
 
-    corners = frame[frame["session_id"].isin(sessions) & (frame["is_corner"] == 1)].copy()
+    corners = shown[shown["session_id"].isin(sessions) & (shown["is_corner"] == 1)].copy()
     corners["session_key"] = corners["session_id"].map(keys)
     corners["lap_no"] = corners.groupby("session_id")["lap"].transform(lambda x: pd.factorize(x, sort=True)[0] + 1)
     cols = ["session_key", "circuit", "segment", "segment_name", "lap_no", "seg_time", "ref_seg_time", "time_loss",
@@ -331,15 +332,26 @@ def save_response(review_dir: Path, expert_id: str, window_id: str, relevant: bo
                      as_int(advice_ok), comment.strip(), float(seconds), time.strftime("%Y-%m-%dT%H:%M:%S")))
 
 
-def save_relevance(review_dir: Path, expert_id: str, window_id: str, relevant: bool, seconds: float) -> None:
+def complete(responses: pd.DataFrame) -> pd.Series:
+    """True for a window that needs no further answer.
+
+    A window that the expert would not discuss is complete after the first answer: the questions on
+    the assigned type and advice are only asked for windows the expert would discuss.
+    """
+    return (responses["relevant"] == 0) | responses["type_correct"].notna()
+
+
+def save_relevance(review_dir: Path, expert_id: str, window_id: str, relevant: bool, seconds: float,
+                   comment: str = "") -> None:
     """Store the first answer on a window as soon as it is given. An existing answer is never replaced.
 
     The assigned type and advice are shown after this answer. Storing it at once means that an expert who
     leaves the page and comes back cannot give the first answer again with that knowledge.
     """
     with connect(review_dir) as con:
-        con.execute("INSERT OR IGNORE INTO responses (expert_id, window_id, relevant, seconds, saved_at) VALUES (?,?,?,?,?)",
-                    (expert_id, window_id, int(bool(relevant)), float(seconds), time.strftime("%Y-%m-%dT%H:%M:%S")))
+        con.execute("INSERT OR IGNORE INTO responses (expert_id, window_id, relevant, comment, seconds, saved_at) "
+                    "VALUES (?,?,?,?,?,?)", (expert_id, window_id, int(bool(relevant)), comment.strip(), float(seconds),
+                                             time.strftime("%Y-%m-%dT%H:%M:%S")))
 
 
 def has_answers(review_dir: Path) -> bool:
@@ -531,11 +543,13 @@ def analyse(cfg: dict) -> dict:
             other = g["correct_type"].dropna()
             kind = other.mode().iloc[0] if len(other) else g["shown_type"].iloc[0]
         return pd.Series({"expert_label": relevant, "expert_type": kind, "n_experts": len(g),
-                          "advice_ok": g["advice_ok"].mean()})
+                          "advice_ok": g["advice_ok"].mean(), "tie": float(g["relevant"].mean() == 0.5)})
     labels = resp.groupby("window_id").apply(reference, include_groups=False).reset_index()
     if "weight" in key:
         labels = labels.merge(key[["window_id", "weight", "drawn_from"]], on="window_id", how="left")
     labels.to_parquet(paths.review / "expert_labels.parquet", index=False)
+    several = labels[labels["n_experts"] > 1]
+    out["windows_with_several_experts"], out["ties_counted_as_not_relevant"] = int(len(several)), int(several["tie"].sum())
 
     joined = labels.drop(columns=[c for c in ("weight", "drawn_from") if c in labels]).merge(key, on="window_id").merge(
         items[["window_id", "shown_type"]], on="window_id")

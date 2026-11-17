@@ -165,7 +165,16 @@ are settings in `configs/default.yaml`.
   band is the road used by all recorded laps. The ground plane of ACC is mirrored; the tool flips it so that a right
   turn is drawn as one.
 - **Order of the expert tasks.** The review tool only opens the single segments after the session task
-  has been completed.
+  has been completed, and locks the session task once the segments have been started. The first answer on a
+  segment (would you discuss it) is stored at once and cannot be changed. The questions on the assigned type and
+  advice are only asked when that answer is yes.
+- **What the experts see first.** The session task opens with the time lost per corner and lap, and a segment is
+  shown with its time difference to the reference lap. This is the criterion of the time-loss baseline, so any
+  influence of the display on the experts works in favour of the baseline, not of the model.
+- **Ties.** A segment judged by several experts is relevant when more than half of them would discuss it. A tie
+  counts as not relevant; `km sq4` reports how many ties occurred.
+- **Corner names.** `segments.names` in the configuration holds the usual corner names per circuit. They are used
+  when `km segments` finds exactly that number of corners; check the result in `configs/segments/`.
 - **Evaluation target.** Expert labels where they exist, weak labels otherwise. Results against weak labels
   are marked as provisional in `sq2_summary.json`, because the labelling functions score perfectly against
   their own output.
@@ -249,7 +258,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 37 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 38 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

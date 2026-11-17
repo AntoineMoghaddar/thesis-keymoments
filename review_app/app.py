@@ -255,7 +255,7 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
     order = mine["window_id"].tolist()
     responses = review.load_responses(folder)
     started = responses[responses["expert_id"] == user["expert_id"]].set_index("window_id")
-    done = started[started["type_correct"].notna()]      # the first answer alone does not complete a window
+    done = started[review.complete(started)]             # 'yes' on the first question leaves two questions open
     open_positions = [k for k, w in enumerate(order) if w not in done.index]
     if "position" not in st.session_state:
         st.session_state["position"] = open_positions[0] if open_positions else len(order) - 1
@@ -298,17 +298,28 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
         with st.form(f"step1_{window_id}"):
             first = st.radio(t("q1", lang), yes_no, index=None, horizontal=True)
             st.caption(t("q1_hint", lang))
+            note = st.text_area(t("comment", lang), max_chars=1000, height=80)
             if st.form_submit_button(t("continue", lang), type="primary"):
                 if first is None:
                     st.error(t("need_q1", lang))
                 else:
                     review.save_relevance(folder, user["expert_id"], window_id, first == yes_no[0],
-                                          time.time() - st.session_state["timer"])
+                                          time.time() - st.session_state["timer"], note)
+                    if first == yes_no[1]:               # nothing to discuss: no further questions on this window
+                        later = [k for k in open_positions if k > pos]
+                        remaining = [k for k in open_positions if k != pos]
+                        st.session_state["position"] = later[0] if later else (remaining[0] if remaining else pos)
                     st.rerun()
         _navigation(pos, order, open_positions, lang)
         return
     relevant_answer = bool(previous["relevant"])
     st.markdown(f"**{t('q1', lang)}** {yes_no[0] if relevant_answer else yes_no[1]}")
+    if not relevant_answer:
+        st.caption(t("q1_no_more", lang))
+        if previous["comment"]:
+            st.caption(f"{t('comment', lang)}: {previous['comment']}")
+        _navigation(pos, order, open_positions, lang)
+        return
 
     st.markdown(f"**{t('assigned_type', lang)}:** {kind} {TYPE_NAMES[lang][kind]}")
     st.markdown(f"**{t('assigned_advice', lang)}:** {ADVICE_NAMES[lang][kind]}")
@@ -508,7 +519,7 @@ def page_dashboard(folder: Path, user: dict, lang: str) -> None:
     if user["role"] == "admin":
         st.subheader(t("dash_all", lang))
         total = assignments.groupby("expert_id").size().rename("assigned")
-        complete = responses[responses["type_correct"].notna()]
+        complete = responses[review.complete(responses)]
         done = complete.groupby("expert_id").agg(reviewed=("window_id", "size"), relevant=("relevant", "mean"),
                                                   median_seconds=("seconds", "median"))
         picks = review.load_session_picks(folder)
@@ -517,7 +528,7 @@ def page_dashboard(folder: Path, user: dict, lang: str) -> None:
         st.download_button(t("dash_download", lang), responses.to_csv(index=False).encode("utf-8"), "responses.csv")
         st.download_button("session_picks.csv", picks.to_csv(index=False).encode("utf-8"), "session_picks.csv")
         return
-    mine = responses[(responses["expert_id"] == user["expert_id"]) & responses["type_correct"].notna()]
+    mine = responses[(responses["expert_id"] == user["expert_id"]) & review.complete(responses)]
     n_total = int((assignments["expert_id"] == user["expert_id"]).sum())
     st.subheader(t("dash_mine", lang))
     st.progress(len(mine) / max(n_total, 1), text=f"{t('dash_done', lang)}: {len(mine)} / {n_total}")
@@ -526,8 +537,9 @@ def page_dashboard(folder: Path, user: dict, lang: str) -> None:
         return
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(t("dash_relevant", lang), f"{100 * mine['relevant'].mean():.0f}%")
-    c2.metric(t("dash_type_ok", lang), f"{100 * mine['type_correct'].mean():.0f}%")
-    c3.metric(t("dash_advice_ok", lang), f"{100 * mine['advice_ok'].mean():.0f}%")
+    discussed = mine[mine["type_correct"].notna()]
+    c2.metric(t("dash_type_ok", lang), f"{100 * discussed['type_correct'].mean():.0f}%" if len(discussed) else "")
+    c3.metric(t("dash_advice_ok", lang), f"{100 * discussed['advice_ok'].mean():.0f}%" if len(discussed) else "")
     c4.metric(t("dash_time", lang), f"{mine['seconds'].median():.0f} s")
     joined = mine.merge(items[["window_id", "shown_type"]], on="window_id")
     counts = joined.groupby(["shown_type", "relevant"]).size().unstack(fill_value=0).reindex(TYPES, fill_value=0)
