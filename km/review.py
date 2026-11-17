@@ -94,21 +94,26 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
     frame["in_baseline"] = top_b(frame, "time_loss", rv["budget"], spread)
     frame = frame[~frame["is_reference"]]
     frame["group"] = np.where(frame["in_model"], "model", np.where(frame["in_baseline"], "baseline", "neither"))
+    corners = frame[frame["is_corner"] == 1]
     pools = {"model": frame[frame["group"] == "model"], "baseline": frame[frame["group"] == "baseline"],
-             "neither": frame[(frame["group"] == "neither") & (frame["is_corner"] == 1)]}
+             "neither": corners[corners["group"] == "neither"], "random": corners}
+    drawn_from: dict[str, str] = {}
 
     def draw(n_total: int, taken: set) -> list[str]:
         chosen = []
-        for group, share in rv["mix"].items():
+
+        def take(group: str, k: int) -> None:
             pool = pools[group]
             pool = pool[~pool["window_id"].isin(taken | set(chosen))]
-            k = min(int(round(share * n_total)), len(pool), n_total - len(chosen))
-            chosen += list(rng.choice(pool["window_id"].to_numpy(), k, replace=False))
-        # When a group runs out, the remaining places go to windows selected by neither.
-        rest = pools["neither"][~pools["neither"]["window_id"].isin(taken | set(chosen))]
-        k = min(n_total - len(chosen), len(rest))
-        if k > 0:
-            chosen += list(rng.choice(rest["window_id"].to_numpy(), k, replace=False))
+            k = min(k, len(pool), n_total - len(chosen))
+            if k > 0:
+                picked = list(rng.choice(pool["window_id"].to_numpy(), k, replace=False))
+                drawn_from.update({w: group for w in picked})
+                chosen.extend(picked)
+
+        for group, share in rv["mix"].items():
+            take(group, int(round(share * n_total)))
+        take("random", n_total - len(chosen))      # when a group runs out, the places go to the random draw
         return chosen
 
     shared = draw(rv["shared"], set())
@@ -130,14 +135,24 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
     blind = ["window_id", "circuit", "segment", "segment_name", "shown_type", "advice_en", "advice_nl",
              "time_loss", "seg_time", "ref_seg_time"]
     items[blind].to_parquet(paths.review / "items.parquet", index=False)
-    items[["window_id", "driver", "level", "session_id", "lap", "group", "in_model", "in_baseline", "score_xgb",
-           "weak_label", "weak_type"]].to_parquet(paths.review / "key_PRIVATE.parquet", index=False)
+    # Inclusion probability of every reviewed window: it could be drawn from its own group and from the
+    # random draw. The inverse is the weight with which it stands for all windows in the evaluation.
+    rate = {g: sum(v == g for v in drawn_from.values()) / max(len(pools[g]), 1) for g in pools}
+    is_corner = items["is_corner"].to_numpy() == 1
+    own = np.array([rate[g] if g != "neither" or c else 0.0 for g, c in zip(items["group"], is_corner)])
+    inclusion = 1 - (1 - own) * (1 - np.where(is_corner, rate["random"], 0.0))
+    items["inclusion_probability"] = np.clip(inclusion, 1e-6, 1.0)
+    items["weight"] = 1.0 / items["inclusion_probability"]
+    items["drawn_from"] = items["window_id"].map(drawn_from)
+    items[["window_id", "driver", "level", "session_id", "lap", "group", "drawn_from", "in_model", "in_baseline",
+           "score_xgb", "weak_label", "weak_type", "inclusion_probability", "weight"]].to_parquet(
+        paths.review / "key_PRIVATE.parquet", index=False)
     assignments.to_parquet(paths.review / "assignments.parquet", index=False)
     _traces(items, data, lengths, cfg).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():
         make_codes(paths.review, rv["n_experts"])
     session_info = _session_task(frame, data, lengths, experts, cfg, rng, paths)
-    return {"sessions": session_info, "windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
+    return {"sessions": session_info, "drawn_from": pd.Series(drawn_from).value_counts().to_dict(), "windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
             "groups": items["group"].value_counts().to_dict()}
 
 
@@ -427,13 +442,21 @@ def analyse(cfg: dict) -> dict:
         return pd.Series({"expert_label": relevant, "expert_type": kind, "n_experts": len(g),
                           "advice_ok": g["advice_ok"].mean()})
     labels = resp.groupby("window_id").apply(reference, include_groups=False).reset_index()
+    if "weight" in key:
+        labels = labels.merge(key[["window_id", "weight", "drawn_from"]], on="window_id", how="left")
     labels.to_parquet(paths.review / "expert_labels.parquet", index=False)
 
-    joined = labels.merge(key, on="window_id").merge(items[["window_id", "shown_type"]], on="window_id")
+    joined = labels.drop(columns=[c for c in ("weight", "drawn_from") if c in labels]).merge(key, on="window_id").merge(
+        items[["window_id", "shown_type"]], on="window_id")
     by_group = joined.groupby("group").agg(n=("expert_label", "size"), relevant=("expert_label", "mean"),
                                            advice_ok=("advice_ok", "mean")).reset_index()
     positives = joined[joined["expert_label"] == 1]
     out["type_agreement"] = float((positives["shown_type"] == positives["expert_type"]).mean()) if len(positives) else np.nan
+    if "weight" in joined:
+        # Share of all corner windows that the panel would discuss, estimated from the weighted sample.
+        out["relevant_share_all_windows"] = float(np.average(joined["expert_label"], weights=joined["weight"]))
+        random_part = joined[joined["drawn_from"] == "random"]
+        out["relevant_share_random_draw"] = float(random_part["expert_label"].mean()) if len(random_part) else np.nan
     out["precision_model_selection"] = float(joined.loc[joined["in_model"], "expert_label"].mean())
     out["precision_baseline_selection"] = float(joined.loc[joined["in_baseline"], "expert_label"].mean())
 

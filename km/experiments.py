@@ -44,10 +44,12 @@ def add_target(frame: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, str]:
         frame["target"] = frame["weak_label"].astype(float)
         frame["target_type"] = frame["weak_type"]
         return frame, "weak labels (provisional)"
-    frame = frame.merge(expert[["window_id", "expert_label", "expert_type"]], on="window_id", how="left")
+    columns = ["window_id", "expert_label", "expert_type"] + (["weight"] if "weight" in expert else [])
+    frame = frame.merge(expert[columns], on="window_id", how="left")
     frame["target"] = frame["expert_label"]
     frame["target_type"] = frame["expert_type"].fillna("none")
-    return frame, "expert-validated labels"
+    weighted = "weight" in frame and frame["weight"].notna().any()
+    return frame, "expert-validated labels" + (", weighted to all windows" if weighted else "")
 
 
 def cross_validate(windows: pd.DataFrame, cfg: dict, data: np.ndarray | None = None,

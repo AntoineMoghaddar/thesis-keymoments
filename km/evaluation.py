@@ -52,14 +52,20 @@ def metrics(frame: pd.DataFrame, score: str, target: str, budgets: list[int], th
 
     The target may be missing for windows that no expert has judged. Those windows still take
     part in the ranking per session, but only judged windows are counted.
+
+    When the frame has a column `weight` (the inverse of the probability with which a window was
+    selected for review), PR-AUC, precision, recall and F1 are weighted with it, so that they
+    estimate the performance on all windows and not on the reviewed sample.
     """
     target_values = frame[target].to_numpy(float)
     known = ~np.isnan(target_values)
     y = target_values[known].astype(int)
     s = frame[score].to_numpy(float)
+    w = frame["weight"].fillna(1.0).to_numpy(float)[known] if "weight" in frame else None
     out = {"n": int(known.sum()), "positives": int(y.sum()),
-           "pr_auc": float(average_precision_score(y, s[known])) if 0 < y.sum() < len(y) else np.nan}
-    p, r, f, _ = precision_recall_fscore_support(y, s[known] >= threshold, average="binary", zero_division=0)
+           "pr_auc": float(average_precision_score(y, s[known], sample_weight=w)) if 0 < y.sum() < len(y) else np.nan}
+    p, r, f, _ = precision_recall_fscore_support(y, s[known] >= threshold, average="binary", zero_division=0,
+                                                 sample_weight=w)
     out.update(precision=float(p), recall=float(r), f1=float(f))
     for b in budgets:
         chosen = top_b(frame, score, b, max_per_segment) & known

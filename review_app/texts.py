@@ -55,7 +55,7 @@ In the second part you will see a series of segments. A segment is one corner, o
 For each segment you answer three questions:
 
 1. Would you discuss this segment with the driver in a debrief?
-2. A moment type has been assigned to the segment. Is it correct? If not, which type fits?
+2. After your first answer you see the moment type that was assigned to the segment. Is it correct? If not, which type fits?
 3. An advice category has been assigned to the segment. Is it suitable?
 
 You can add a short comment. There are no right or wrong answers: your own judgement as a coach or driver is what is asked for. Some segments contain nothing remarkable, and that is intended.
@@ -77,7 +77,7 @@ In het tweede deel krijg je een reeks segmenten te zien. Een segment is een boch
 Bij elk segment beantwoord je drie vragen:
 
 1. Zou je dit segment met de coureur bespreken in een debrief?
-2. Aan het segment is een type moment toegekend. Klopt dat? Zo niet, welk type past wel?
+2. Na je eerste antwoord zie je het type moment dat aan het segment is toegekend. Klopt dat? Zo niet, welk type past wel?
 3. Aan het segment is een adviescategorie toegekend. Is die passend?
 
 Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: het gaat om je eigen oordeel als coach of coureur. Sommige segmenten bevatten niets opvallends, en dat is de bedoeling.
@@ -129,6 +129,10 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
     "assigned_advice": {"en": "Assigned advice category", "nl": "Toegekende adviescategorie"},
     "q1": {"en": "1. Would you discuss this segment with the driver in a debrief?",
            "nl": "1. Zou je dit segment met de coureur bespreken in een debrief?"},
+    "q1_hint": {"en": "After this answer you see the type of moment and the advice that were assigned to the segment. This first answer cannot be changed afterwards.",
+                "nl": "Na dit antwoord zie je het type moment en het advies dat aan het segment is toegekend. Dit eerste antwoord kun je daarna niet meer wijzigen."},
+    "continue": {"en": "Continue", "nl": "Verder"},
+    "need_q1": {"en": "Please answer the question first.", "nl": "Beantwoord eerst de vraag."},
     "q2": {"en": "2. Is the assigned moment type correct?", "nl": "2. Klopt het toegekende type moment?"},
     "q2b": {"en": "If not: which type fits?", "nl": "Zo niet: welk type past wel?"},
     "q3": {"en": "3. Is the assigned advice category suitable?", "nl": "3. Is de toegekende adviescategorie passend?"},
@@ -141,7 +145,7 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
     "previous": {"en": "Previous segment", "nl": "Vorig segment"},
     "next": {"en": "Next segment", "nl": "Volgend segment"},
     "first_open": {"en": "Go to first open segment", "nl": "Naar eerste open segment"},
-    "need_answers": {"en": "Please answer questions 1, 2 and 3.", "nl": "Beantwoord vraag 1, 2 en 3."},
+    "need_answers": {"en": "Please answer questions 2 and 3.", "nl": "Beantwoord vraag 2 en 3."},
     "need_type": {"en": "You answered that the type is not correct. Please choose the type that fits.",
                   "nl": "Je gaf aan dat het type niet klopt. Kies het type dat wel past."},
     "dash_done": {"en": "Reviewed", "nl": "Beoordeeld"},

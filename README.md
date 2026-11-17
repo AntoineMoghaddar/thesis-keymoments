@@ -198,7 +198,15 @@ password.
 The review has two parts. In **Sessions** the expert sees a whole session (time lost per corner and lap, and
 all laps of a corner on top of each other) and chooses at most B corners to discuss. Nothing from the model
 is shown. This gives the share of expert-selected moments that the model also finds, and the overlap between
-two experts as the attainable level. In **Review** the expert judges single segments blind.
+two experts as the attainable level. In **Review** the expert judges single segments blind. The expert first
+answers whether the segment would be discussed. Only then are the assigned type and advice shown, and the first
+answer can no longer be changed, so that it is not influenced by what the model assigned.
+
+Part of the windows of every expert (`review.mix.random`) is drawn at random from all corner windows. Each
+reviewed window gets the inverse of its inclusion probability as a weight, and PR-AUC, precision, recall and F1
+against the expert labels are weighted with it. Without this, the reviewed windows would over-represent what
+the model selected and the scores would not describe all windows. The four background questions for experts
+are switched off by default (`review.background_questions`).
 
 Local use:
 
@@ -217,7 +225,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 30 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 31 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.
