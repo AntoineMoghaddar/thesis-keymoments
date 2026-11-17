@@ -99,6 +99,8 @@ km --config configs/local.yaml sq3              data requirements (laps, drivers
 km --config configs/local.yaml reference        three kinds of reference lap compared
 km --config configs/local.yaml generalisation   unseen driver, unseen circuit, unseen experience level
 km --config configs/local.yaml ablation         feature groups, labelling functions, aggregation
+km --config configs/local.yaml sensitivity      the comparison repeated with the researcher's choices made differently
+km --config configs/local.yaml plan             expected interval widths and power for several numbers of drivers and experts
 km --config configs/local.yaml track            track edges from the survey recordings (pseudonym X01)
 km --config configs/local.yaml review-package   selects windows for the experts, creates access codes
 streamlit run review_app/app.py                 the review tool
@@ -171,6 +173,9 @@ are settings in `configs/default.yaml`.
 - **What the experts see first.** The session task opens with the time lost per corner and lap, and a segment is
   shown with its time difference to the reference lap. This is the criterion of the time-loss baseline, so any
   influence of the display on the experts works in favour of the baseline, not of the model.
+- **Consistency of an expert.** Five windows per expert (`review.repeats`) are shown a second time in the last
+  third of the task. `km sq4` reports how often an expert repeats the own earlier answer. The second answers are
+  not used for the reference labels.
 - **Ties.** A segment judged by several experts is relevant when more than half of them would discuss it. A tie
   counts as not relevant; `km sq4` reports how many ties occurred.
 - **Corner names.** `segments.names` in the configuration holds the usual corner names per circuit. They are used
@@ -258,7 +263,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 38 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 39 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

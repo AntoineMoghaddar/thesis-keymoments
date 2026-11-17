@@ -450,3 +450,80 @@ def ablation(cfg: dict) -> dict:
     function_table.to_csv(paths.results / "ablation_labelling_functions.csv", index=False)
     aggregation_table.to_csv(paths.results / "ablation_aggregation.csv", index=False)
     return {"features": feature_table, "labelling_functions": function_table, "aggregation": aggregation_table}
+
+
+# ------------------------------------------------------------------ sensitivity
+
+def _variants(cfg: dict) -> list[tuple[str, str, dict]]:
+    """The settings of this study that rest on a choice of the researcher, each changed on its own."""
+    def changed(section: str, **values) -> dict:
+        variant = copy.deepcopy(cfg)
+        variant[section].update(values)
+        return variant
+
+    def percentiles(shift: int) -> dict:
+        variant = copy.deepcopy(cfg)
+        for name, setting in variant["labelling"].items():
+            if isinstance(setting, dict) and "percentile" in setting:
+                setting["percentile"] = float(np.clip(setting["percentile"] + shift, 50, 99.5))
+        return variant
+
+    base_loss = cfg["labelling"]["min_time_loss_s"]
+    return [
+        ("as planned", "", cfg),
+        ("labelling thresholds", "percentiles 5 points lower", percentiles(-5)),
+        ("labelling thresholds", "percentiles 5 points higher", percentiles(5)),
+        ("time-loss condition", "none", changed("labelling", min_time_loss_s=0.0)),
+        ("time-loss condition", f"{2 * base_loss:g} s", changed("labelling", min_time_loss_s=2 * base_loss)),
+        ("primary type", "strongest function", changed("labelling", type_rule="strongest")),
+        ("aggregation", "label model", changed("labelling", aggregation="label_model")),
+        ("one window per corner", "off", changed("evaluation", max_per_segment=None)),
+    ]
+
+
+def sensitivity(cfg: dict) -> dict:
+    """Do the conclusions hold when the choices of the researcher are made differently?
+
+    Every setting is changed on its own and the comparison of SQ2 is repeated without the sequence
+    model. The table shows, per variant, PR-AUC and precision at the budget of the study for the tree
+    model and the baselines, and whether the order of the approaches is the same as planned. A second
+    table varies the share of laps from which a moment counts as recurring. Against weak labels the
+    outcome is provisional, because a change of the labelling functions then also changes the target.
+    """
+    paths = Paths.from_config(cfg).ensure()
+    windows = load_windows(cfg)
+    seed, ev = cfg["evaluation"]["seeds"][0], cfg["evaluation"]
+    budget = cfg["review"]["budget"]
+    names = [n for n in SCORES if n != "seq"]
+    rows, base_pred, source = [], None, ""
+    for setting, value, variant in _variants(cfg):
+        pred = cross_validate(windows, variant, seed=seed)
+        if base_pred is None:
+            base_pred = pred
+        frame, source = add_target(pred, variant)
+        row = dict(setting=setting, value=value, positive_rate=float(frame["weak_label"].mean()))
+        scores = {}
+        for name in names:
+            m = metrics(frame, SCORES[name], "target", ev["budgets"], max_per_segment=variant["evaluation"].get("max_per_segment"))
+            row[f"pr_auc_{name}"], row[f"precision@{budget}_{name}"] = m["pr_auc"], m[f"precision@{budget}"]
+            scores[name] = m[f"precision@{budget}"]
+        row["order"] = " > ".join(sorted(scores, key=scores.get, reverse=True))
+        row["model_first"] = bool(scores["xgb"] >= max(v for k, v in scores.items() if k != "xgb"))
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    table["same_order_as_planned"] = table["order"] == table["order"].iloc[0]
+
+    scored = windows.merge(base_pred[["window_id", "score_xgb", "type_xgb"]], on="window_id")
+    scored.loc[scored["is_reference"], "score_xgb"] = 0.0
+    shares = []
+    for share in (0.3, 0.4, 0.5):
+        variant = copy.deepcopy(cfg)
+        variant["moments"]["structural_share"] = share
+        session = moments.session_moments(scored, variant, "score_xgb", "type_xgb")
+        counts = session["pattern"].value_counts(normalize=True).to_dict() if len(session) else {}
+        shares.append(dict(structural_share=share, session_moments=int(len(session)), **{f"share_{k}": v for k, v in counts.items()}))
+    recurring = pd.DataFrame(shares)
+
+    table.to_csv(paths.results / "sensitivity_settings.csv", index=False)
+    recurring.to_csv(paths.results / "sensitivity_recurring.csv", index=False)
+    return {"settings": table, "recurring": recurring, "evaluated_against": source}

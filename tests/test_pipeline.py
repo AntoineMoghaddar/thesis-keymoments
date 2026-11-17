@@ -174,8 +174,12 @@ def test_experiments_and_expert_review(study):
     truth = pd.Series(_with_truth(w, study["truth"], cfg["preprocess"]["grid_points"]), index=w["window_id"])
     assignments = pd.read_parquet(paths.review / "assignments.parquet")
     rng = np.random.default_rng(0)
+    assert assignments["repeat_of"].notna().groupby(assignments["expert_id"]).sum().eq(5).all()
+    again = assignments.dropna(subset=["repeat_of"])
+    first_seen = assignments.set_index(["expert_id", "window_id"])["position"]
+    assert all(first_seen[(r.expert_id, r.repeat_of)] < r.position for r in again.itertuples())     # the repeat comes later
     for r in assignments.itertuples():
-        kind = truth[r.window_id]
+        kind = truth[r.repeat_of if isinstance(r.repeat_of, str) else r.window_id]
         shown = items.set_index("window_id").loc[r.window_id, "shown_type"]
         relevant = (kind != "none") != (rng.random() < 0.1)          # ten percent disagreement
         review.save_response(paths.review, r.expert_id, r.window_id, relevant, kind == shown,
@@ -200,7 +204,9 @@ def test_experiments_and_expert_review(study):
     assert -1 <= result["fleiss_kappa_relevance"] <= 1
     assert len(result["labelling_functions"]) == 8
     labels = pd.read_parquet(paths.review / "expert_labels.parquet")
-    assert set(labels["expert_label"]) <= {0, 1} and len(labels) == assignments["window_id"].nunique()
+    assert set(labels["expert_label"]) <= {0, 1}
+    assert len(labels) == assignments.loc[assignments["repeat_of"].isna(), "window_id"].nunique()   # repeats give no label
+    assert result["repeated_windows_answered"] == 15 and 0 <= result["intra_expert_agreement"] <= 1
 
     assert "weight" in labels and labels["weight"].notna().all()
     assert 0 <= result["relevant_share_all_windows"] <= 1
@@ -456,3 +462,22 @@ def test_usual_corner_names_only_when_the_count_matches(study):
     assert [s["name"] for s in segments.propose(laps, data, circuit, named) if s["kind"] == "corner"][0] == "Corner 0"
     wrong = dict(cfg, segments=dict(cfg["segments"], names={circuit: ["only one"]}))
     assert [s["name"] for s in segments.propose(laps, data, circuit, wrong) if s["kind"] == "corner"][0] == "Turn 1"
+
+
+def test_sensitivity_and_planning(study):
+    from km import planning
+    out = experiments.sensitivity(study["cfg"])
+    table = out["settings"]
+    assert table["setting"].iloc[0] == "as planned" and bool(table["same_order_as_planned"].iloc[0])
+    assert len(table) == 8 and table["positive_rate"].nunique() > 1          # the variants really change the labels
+    assert list(out["recurring"]["structural_share"]) == [0.3, 0.4, 0.5]
+
+    power = planning.power(study["cfg"], n_sim=300)
+    by = power.set_index(["drivers", "effect"])["power"]
+    assert by[(12, 1.6)] > by[(6, 0.8)] and power["smallest_p"].max() == pytest.approx(2 / 64)
+    agree = planning.agreement(study["cfg"], n_sim=200)
+    odd = agree[agree["experts"].isin([5, 7])]
+    assert (odd["share_ties"] == 0).all() and (agree.loc[agree["experts"] == 6, "share_ties"] > 0).all()
+    narrow = agree.query("expert_accuracy == 0.85 and experts == 6").set_index("shared_windows")["width"]
+    assert narrow[40] < narrow[20]
+    assert (planning.precision(study["cfg"])["half_width"] < 0.25).all()

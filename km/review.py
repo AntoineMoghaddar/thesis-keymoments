@@ -182,12 +182,21 @@ def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     shared = draw(rv["shared"], set())
     assignments, used = [], set(shared)
     experts = [f"E{i:02d}" for i in range(1, rv["n_experts"] + 1)]
+    n_repeat = min(int(rv.get("repeats", 0)), (rv["per_expert"] - len(shared)) // 2)
+    repeats = {}                                  # id under which a window is shown a second time -> the window
     for expert in experts:
-        own = draw(rv["per_expert"] - len(shared), used)
+        own = draw(rv["per_expert"] - len(shared) - n_repeat, used)
         used |= set(own)
-        order = rng.permutation(shared + own)
-        assignments += [dict(expert_id=expert, position=k, window_id=w, shared=w in set(shared))
-                        for k, w in enumerate(order)]
+        order = [str(w) for w in rng.permutation(shared + own)]
+        # A few windows from the first half are shown again in the last third, under another id. The two
+        # answers of the same expert show how consistent an expert is, which is the ceiling for any model.
+        again = [str(w) for w in rng.choice(order[:len(order) // 2], n_repeat, replace=False)] if n_repeat else []
+        for w in again:
+            shown_as = f"{w}~{expert}"
+            repeats[shown_as] = w
+            order.insert(int(rng.integers(2 * len(order) // 3, len(order) + 1)), shown_as)
+        assignments += [dict(expert_id=expert, position=k, window_id=w, shared=w in set(shared),
+                             repeat_of=repeats.get(w)) for k, w in enumerate(order)]
     assignments = pd.DataFrame(assignments)
 
     items = frame[frame["window_id"].isin(used)].copy()
@@ -197,7 +206,12 @@ def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     lengths = {c: info["length_m"] for c, info in circuits.items()}
     blind = ["window_id", "circuit", "segment", "segment_name", "shown_type", "advice_en", "advice_nl",
              "time_loss", "seg_time", "ref_seg_time"]
-    items[blind].to_parquet(paths.review / "items.parquet", index=False)
+
+    def with_repeats(table: pd.DataFrame) -> pd.DataFrame:
+        """The rows of the repeated windows once more, under the id with which they are shown again."""
+        copies = [table[table["window_id"] == w].assign(window_id=shown_as) for shown_as, w in repeats.items()]
+        return pd.concat([table] + copies, ignore_index=True) if copies else table
+    with_repeats(items[blind]).to_parquet(paths.review / "items.parquet", index=False)
     # Inclusion probability of every reviewed window: it could be drawn from its own group and from the
     # random draw. The inverse is the weight with which it stands for all windows in the evaluation.
     rate = {g: sum(v == g for v in drawn_from.values()) / max(len(pools[g]), 1) for g in pools}
@@ -215,7 +229,7 @@ def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     outline, flip = track_outline(laps, data, track.load_edges(cfg))
     outline.astype({c: "float32" for c in outline.columns if c not in ("circuit", "idx", "source")}).to_parquet(
         paths.review / "track.parquet", index=False)
-    _traces(items, data, lengths, cfg, flip).to_parquet(paths.review / "traces.parquet", index=False)
+    with_repeats(_traces(items, data, lengths, cfg, flip)).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():
         make_codes(paths.review, rv["n_experts"])
     session_info = _session_task(frame, with_reference, data, lengths, experts, cfg, rng, paths, flip)
@@ -502,8 +516,24 @@ def analyse(cfg: dict) -> dict:
     key = pd.read_parquet(paths.review / "key_PRIVATE.parquet")
     items = pd.read_parquet(paths.review / "items.parquet")
     assignments = pd.read_parquet(paths.review / "assignments.parquet")
-    resp = resp.merge(key, on="window_id").merge(items[["window_id", "shown_type"]], on="window_id")
     out = {}
+
+    # Windows that an expert saw twice: the second answer only serves to measure the consistency of the expert.
+    again = assignments.dropna(subset=["repeat_of"]) if "repeat_of" in assignments else assignments.iloc[:0]
+    second = resp.merge(again[["expert_id", "window_id", "repeat_of"]], on=["expert_id", "window_id"])
+    resp = resp[~resp["window_id"].isin(again["window_id"])]
+    pairs = second.merge(resp[["expert_id", "window_id", "relevant"]], left_on=["expert_id", "repeat_of"],
+                         right_on=["expert_id", "window_id"], suffixes=("_second", "_first"))
+    if len(pairs):
+        same = pairs["relevant_first"] == pairs["relevant_second"]
+        out["repeated_windows_answered"] = int(len(pairs))
+        out["intra_expert_agreement"] = float(same.mean())
+        varied = pairs["relevant_first"].nunique() > 1 and pairs["relevant_second"].nunique() > 1
+        out["intra_expert_kappa"] = float(cohen_kappa_score(pairs["relevant_first"], pairs["relevant_second"])) if varied else float("nan")
+        pairs.assign(same=same).groupby("expert_id").agg(n=("same", "size"), agreement=("same", "mean")).reset_index().to_csv(
+            paths.results / "sq4_intra_expert.csv", index=False)
+
+    resp = resp.merge(key, on="window_id").merge(items[["window_id", "shown_type"]], on="window_id")
 
     # Agreement among the experts on the shared windows that all of them completed.
     shared_ids = assignments.loc[assignments["shared"], "window_id"].unique()
