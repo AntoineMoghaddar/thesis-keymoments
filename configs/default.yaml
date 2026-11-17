@@ -99,7 +99,10 @@ review:
   per_expert: 60          # windows shown to each expert
   shared: 20              # of which reviewed by every expert
   budget: 3               # B used to decide which windows count as selected by the model and the baseline
-  mix: {model: 0.4, baseline: 0.3, neither: 0.3}
+  # Shares of the windows of an expert. 'random' is drawn from all corner windows, whatever the model or the
+  # baseline selected. It makes it possible to weight the reviewed windows back to all windows.
+  mix: {model: 0.3, baseline: 0.2, neither: 0.2, random: 0.3}
+  background_questions: false   # four questions on role and experience; only after approval by the ethics committee
   trace_points: 240       # samples per plotted trace
   context: 0.35           # track shown before and after the segment, as a share of its length
 

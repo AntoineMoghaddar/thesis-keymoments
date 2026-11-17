@@ -152,6 +152,10 @@ def test_experiments_and_expert_review(study):
 
     info = review.build_package(cfg)
     assert all(n == 20 for n in info["per_expert"].values()) and info["sessions"]["shared"] == 2
+    key = pd.read_parquet(paths.review / "key_PRIVATE.parquet")
+    assert info["drawn_from"].get("random", 0) > 0 and set(key["drawn_from"]) <= {"model", "baseline", "neither", "random"}
+    assert key["inclusion_probability"].between(0, 1).all() and (key["weight"] >= 1).all()
+    assert key.loc[key["in_model"], "weight"].mean() < key.loc[key["group"] == "neither", "weight"].mean()
     items = pd.read_parquet(paths.review / "items.parquet")
     assert not {"group", "driver", "level", "session_id", "in_model", "score_xgb"} & set(items.columns)   # blind
     codes = pd.read_csv(paths.review / "access_codes_PRIVATE.csv")
@@ -175,8 +179,10 @@ def test_experiments_and_expert_review(study):
     labels = pd.read_parquet(paths.review / "expert_labels.parquet")
     assert set(labels["expert_label"]) <= {0, 1} and len(labels) == assignments["window_id"].nunique()
 
+    assert "weight" in labels and labels["weight"].notna().all()
+    assert 0 <= result["relevant_share_all_windows"] <= 1
     out = experiments.sq2(cfg, with_seq=False)                       # now against the expert labels
-    assert out["summary"]["evaluated_against"].startswith("expert")
+    assert out["summary"]["evaluated_against"] == "expert-validated labels, weighted to all windows"
     out = experiments.sq3(cfg)
     assert list(out["training_size"]["fraction"]) == [0.5, 1.0]
     assert list(out["training_drivers"]["training_drivers"]) == [1, 2]
@@ -314,3 +320,39 @@ def test_generalisation_and_ablation_run(study):
     assert list(ref["reference"]) == ["own_best", "ideal", "expert"]
     abl = experiments.ablation(cfg)
     assert len(abl["features"]) == 10 and len(abl["labelling_functions"]) == 9 and len(abl["aggregation"]) == 4
+
+
+def test_review_tool_asks_relevance_before_showing_the_type(study, monkeypatch):
+    """Runs after the expert review test: one answer is removed so that a segment is open again."""
+    pytest.importorskip("streamlit")
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+    paths = Paths.from_config(study["cfg"])
+    codes = pd.read_csv(paths.review / "access_codes_PRIVATE.csv")
+    first = pd.read_parquet(paths.review / "assignments.parquet").query("expert_id == 'E01' and position == 0")["window_id"].iloc[0]
+    with review.connect(paths.review) as con:
+        con.execute("DELETE FROM responses WHERE expert_id = 'E01' AND window_id = ?", (first,))
+    monkeypatch.setenv("KM_REVIEW_DIR", str(paths.review))
+    monkeypatch.setenv("KM_BACKGROUND", "0")
+    script = Path(__file__).resolve().parent.parent / "review_app" / "app.py"
+    app = AppTest.from_file(str(script), default_timeout=60).run()
+    app.text_input[0].set_value(codes["code"][0])
+    app.button[0].click().run()
+    assert not [h.value for h in app.subheader if "background" in h.value.lower() or "achtergrond" in h.value.lower()]
+    app.sidebar.radio[1].set_value("page_review").run()
+    assert not app.exception
+    shown = " ".join(m.value for m in app.markdown)
+    main = [r for r in app.radio if r.key not in ("lang", "page")]
+    assert "Toegekend type moment" not in shown and len(main) == 1         # question 1 only
+    main[0].set_value("Ja")
+    next(b for b in app.button if b.label == "Verder").click().run()
+    shown = " ".join(m.value for m in app.markdown)
+    assert "Toegekend type moment" in shown
+    question_two, question_three = [r for r in app.radio if r.key not in ("lang", "page")]
+    question_two.set_value("Ja")
+    question_three.set_value("Nee")
+    next(b for b in app.button if b.label == "Opslaan en verder").click().run()
+    assert not app.exception and not app.error
+    saved = review.load_responses(paths.review).query("expert_id == 'E01' and window_id == @first").iloc[0]
+    assert saved["relevant"] == 1 and saved["type_correct"] == 1 and saved["advice_ok"] == 0

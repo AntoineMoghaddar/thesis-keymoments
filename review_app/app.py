@@ -35,6 +35,16 @@ def review_dir() -> Path:
     return Paths.from_config(load_config(os.environ.get("KM_CONFIG"))).review
 
 
+def background_enabled() -> bool:
+    """The background questions for experts are only asked when they have been switched on."""
+    if os.environ.get("KM_BACKGROUND"):
+        return os.environ["KM_BACKGROUND"] == "1"
+    try:
+        return bool(load_config(os.environ.get("KM_CONFIG"))["review"].get("background_questions", False))
+    except Exception:
+        return False
+
+
 def load_budget() -> int:
     """Number of corners an expert may select per session (B). On a server it is set with KM_BUDGET."""
     try:
@@ -97,7 +107,7 @@ def page_intro(folder: Path, user: dict, lang: str) -> None:
         t("col_phase", lang): [T["phases"][lang][SCHEMA[k]["phase"]] for k in TYPES],
         t("col_advice", lang): [ADVICE_NAMES[lang][k] for k in TYPES],
     }).set_index(""))
-    if user["role"] != "expert":
+    if user["role"] != "expert" or not background_enabled():
         return
     st.subheader(t("profile_title", lang))
     st.caption(t("profile_intro", lang))
@@ -112,6 +122,19 @@ def page_intro(folder: Path, user: dict, lang: str) -> None:
             review.save_profile(folder, user["expert_id"], json.dumps(
                 dict(roles=roles, years=int(years), coach_years=int(coach_years), telemetry=telemetry)))
             st.success(t("saved", lang))
+
+
+def _navigation(pos: int, order: list, open_positions: list, lang: str) -> None:
+    b1, b2, b3 = st.columns(3)
+    if b1.button(t("previous", lang), disabled=pos == 0):
+        st.session_state["position"] = pos - 1
+        st.rerun()
+    if b2.button(t("next", lang), disabled=pos >= len(order) - 1):
+        st.session_state["position"] = pos + 1
+        st.rerun()
+    if b3.button(t("first_open", lang), disabled=not open_positions):
+        st.session_state["position"] = open_positions[0]
+        st.rerun()
 
 
 def page_review(folder: Path, user: dict, lang: str) -> None:
@@ -145,12 +168,32 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
     st.plotly_chart(trace_figure(traces[traces["window_id"] == window_id], lang), width="stretch")
     st.caption(t("segment_area", lang))
 
+    previous = done.loc[window_id] if window_id in done.index else None
+    yes_no = [t("yes", lang), t("no", lang)]
+
+    # Step 1: would the expert discuss this segment? The assigned type and advice are only shown after
+    # this answer, and the answer cannot be changed afterwards, so that it is not influenced by them.
+    state_key = f"relevant_{window_id}"
+    if previous is not None:
+        st.session_state[state_key] = bool(previous["relevant"])
+    if state_key not in st.session_state:
+        with st.form(f"step1_{window_id}"):
+            first = st.radio(t("q1", lang), yes_no, index=None, horizontal=True)
+            st.caption(t("q1_hint", lang))
+            if st.form_submit_button(t("continue", lang), type="primary"):
+                if first is None:
+                    st.error(t("need_q1", lang))
+                else:
+                    st.session_state[state_key] = first == yes_no[0]
+                    st.rerun()
+        _navigation(pos, order, open_positions, lang)
+        return
+    relevant_answer = st.session_state[state_key]
+    st.markdown(f"**{t('q1', lang)}** {yes_no[0] if relevant_answer else yes_no[1]}")
+
     st.markdown(f"**{t('assigned_type', lang)}:** {kind} {TYPE_NAMES[lang][kind]}")
     st.markdown(f"**{t('assigned_advice', lang)}:** {ADVICE_NAMES[lang][kind]}")
     st.info(item[f"advice_{lang}"])
-
-    previous = done.loc[window_id] if window_id in done.index else None
-    yes_no = [t("yes", lang), t("no", lang)]
 
     def index_of(column):
         if previous is None or pd.isna(previous[column]):
@@ -165,19 +208,18 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
         return t("none_type", lang) if value == "none" else f"{value} {TYPE_NAMES[lang][value]}"
 
     with st.form(f"form_{window_id}"):
-        relevant = st.radio(t("q1", lang), yes_no, index=index_of("relevant"), horizontal=True)
         type_ok = st.radio(t("q2", lang), yes_no, index=index_of("type_correct"), horizontal=True)
         start = type_options.index(previous["correct_type"]) if previous is not None and previous["correct_type"] in type_options else 0
         other = st.selectbox(t("q2b", lang), type_options, index=start, format_func=type_label)
         advice_ok = st.radio(t("q3", lang), yes_no, index=index_of("advice_ok"), horizontal=True)
         comment = st.text_area(t("comment", lang), value="" if previous is None else previous["comment"] or "", max_chars=1000)
         if st.form_submit_button(t("save_next", lang), type="primary"):
-            if None in (relevant, type_ok, advice_ok):
+            if None in (type_ok, advice_ok):
                 st.error(t("need_answers", lang))
             elif type_ok == yes_no[1] and other == "-":
                 st.error(t("need_type", lang))
             else:
-                review.save_response(folder, user["expert_id"], window_id, relevant == yes_no[0], type_ok == yes_no[0],
+                review.save_response(folder, user["expert_id"], window_id, relevant_answer, type_ok == yes_no[0],
                                      None if type_ok == yes_no[0] or other == "-" else other, advice_ok == yes_no[0],
                                      comment, time.time() - st.session_state["timer"])
                 remaining = [k for k in open_positions if k != pos]
@@ -185,16 +227,7 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
                 st.session_state["position"] = later[0] if later else (remaining[0] if remaining else pos)
                 st.rerun()
 
-    b1, b2, b3 = st.columns(3)
-    if b1.button(t("previous", lang), disabled=pos == 0):
-        st.session_state["position"] = pos - 1
-        st.rerun()
-    if b2.button(t("next", lang), disabled=pos >= len(order) - 1):
-        st.session_state["position"] = pos + 1
-        st.rerun()
-    if b3.button(t("first_open", lang), disabled=not open_positions):
-        st.session_state["position"] = open_positions[0]
-        st.rerun()
+    _navigation(pos, order, open_positions, lang)
 
 
 @st.cache_data(show_spinner=False)
