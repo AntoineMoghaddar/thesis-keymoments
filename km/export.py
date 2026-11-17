@@ -139,7 +139,10 @@ def export_dataset(cfg: dict, out_dir: str | Path, key_path: str | Path, seed: i
             experts = sorted(resp["expert_id"].unique())
             expert_map = {e: f"X{k + 1:02d}" for k, e in enumerate(rng.permutation(experts))}
             key_rows += [dict(kind="expert", public_id=v, internal_id=k) for k, v in expert_map.items()]
-            resp = resp.assign(expert_id=resp["expert_id"].map(expert_map), window_id=resp["window_id"].map(window_map))
+            # A window that an expert saw twice is stored under its own id with the number of the presentation.
+            base = resp["window_id"].str.split("~").str[0]
+            resp = resp.assign(presentation=np.where(resp["window_id"].str.contains("~"), 2, 1),
+                               expert_id=resp["expert_id"].map(expert_map), window_id=base.map(window_map))
             resp.drop(columns=["comment", "saved_at"]).dropna(subset=["window_id"]).to_parquet(
                 derived / "expert_responses.parquet", index=False)
 

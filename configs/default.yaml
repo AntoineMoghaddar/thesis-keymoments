@@ -103,6 +103,7 @@ review:
   n_experts: 6
   per_expert: 60          # windows shown to each expert
   shared: 30              # of which reviewed by every expert (agreement between experts is computed on these)
+  repeats: 5              # windows per expert that are shown a second time, to measure the consistency of the expert
   budget: 3               # B used to decide which windows count as selected by the model and the baseline
   # Shares of the windows of an expert. 'random' is drawn from all corner windows, whatever the model or the
   # baseline selected. It makes it possible to weight the reviewed windows back to all windows.

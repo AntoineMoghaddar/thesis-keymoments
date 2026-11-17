@@ -57,6 +57,8 @@ def main(argv=None) -> None:
     sub.add_parser("reference", help="compare three kinds of reference lap")
     sub.add_parser("generalisation", help="unseen driver, unseen circuit and unseen experience level")
     sub.add_parser("ablation", help="contribution of feature groups, labelling functions and aggregation")
+    sub.add_parser("sensitivity", help="repeat the comparison with the researcher's choices made differently")
+    sub.add_parser("plan", help="expected precision of the study for several numbers of drivers and experts")
     sub.add_parser("qc", help="quality control of the recorded sessions")
     sub.add_parser("figures", help="draw the figures from the result tables")
     p = sub.add_parser("export-dataset", help="write an anonymised copy of the dataset for publication")
@@ -125,6 +127,15 @@ def main(argv=None) -> None:
         print(f"{len(figures.make_figures(cfg))} figures written to {paths.results / 'figures'}")
     if args.command == "export-dataset":
         print(export.export_dataset(cfg, args.out, args.key))
+    if args.command == "sensitivity":
+        out = experiments.sensitivity(cfg)
+        print(f"Evaluated against: {out['evaluated_against']}")
+        print(out["settings"].round(3).to_string(index=False))
+        print(out["recurring"].round(3).to_string(index=False))
+    if args.command == "plan":
+        from . import planning
+        for name, table in planning.plan(cfg).items():
+            print(f"\n{name}:\n{table.round(3).to_string(index=False)}")
     if args.command == "track":
         from . import track
         print(track.survey(cfg).to_string(index=False))
