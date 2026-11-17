@@ -312,7 +312,7 @@ def page_sessions(folder: Path, user: dict, lang: str, budget: int) -> None:
     st.plotly_chart(heat, width="stretch")
 
     summary = data.groupby("segment").agg(mean=("total_loss", "mean"), spread=("total_loss", "std"),
-                                          worst=("total_loss", "max"), off=("tyres_out_max", lambda x: int((x >= 3).sum())))
+                                          worst=("total_loss", "max"), off=("off_track", lambda x: int((x > 0).sum())))
     summary = summary.loc[corners["segment"]].round(2)
     summary.index = [names[c] for c in summary.index]
     summary.columns = [t("sess_mean", lang), t("sess_spread", lang), t("sess_worst", lang), t("sess_off", lang)]

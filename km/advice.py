@@ -30,6 +30,7 @@ TEMPLATES = {
         "K5": "{seg}: rear wheel slip on exit peaked at {slip:.2f} and traction control was active for {tc:.0f}% of the exit, with a loss of {loss:.2f} s. Apply the throttle more progressively.",
         "K6": "{seg}: the line deviated up to {dev:.1f} m from the reference lap and steering input was {steer:+.0f}% compared with it, with a loss of {loss:.2f} s. Reduce steering input and adjust the line.",
         "K7": "{seg}: {loss:.2f} s was lost against the reference lap{off}. Review what caused this incident.",
+        "K7_cut": "{seg}: the car left the track and the lap was invalidated; the segment was {gain:.2f} s faster than on the reference lap. Stay within the track limits.",
         "K8": "{seg}: segment times in this session varied {ratio:.1f} times as much as in the other segments. Focus practice on this corner.",
     },
     "nl": {
@@ -41,6 +42,7 @@ TEMPLATES = {
         "K5": "{seg}: de slip van de achterwielen bij het uitkomen liep op tot {slip:.2f} en de tractiecontrole greep in gedurende {tc:.0f}% van de uitgang, met een verlies van {loss:.2f} s. Bouw het gas geleidelijker op.",
         "K6": "{seg}: de lijn week tot {dev:.1f} m af van de referentieronde en de stuurinput was {steer:+.0f}% ten opzichte daarvan, met een verlies van {loss:.2f} s. Stuur minder en pas de lijn aan.",
         "K7": "{seg}: er ging {loss:.2f} s verloren ten opzichte van de referentieronde{off}. Ga na wat dit incident veroorzaakte.",
+        "K7_cut": "{seg}: de auto kwam buiten de baan en de ronde werd ongeldig; het segment was {gain:.2f} s sneller dan in de referentieronde. Blijf binnen de baanlimieten.",
         "K8": "{seg}: de segmenttijden in deze sessie varieerden {ratio:.1f} keer zo sterk als in de andere segmenten. Oefen deze bocht gericht.",
     },
 }
@@ -76,6 +78,9 @@ def advice_text(row: pd.Series | dict, moment_type: str, lang: str = "en") -> st
         steer = 100 * _num(row, "d_steer_integral") / ref if ref else 0.0
         return t["K6"].format(seg=seg, dev=_num(row, "line_dev_max"), steer=steer, loss=loss)
     if moment_type == "K7":
-        off = OFF_TRACK[lang] if _num(row, "tyres_out_max") >= 3 else ""
+        left = _num(row, "off_track") > 0 or _num(row, "tyres_out_max") >= 3
+        if left and loss < 0:                       # cutting a corner gains time; "lost" would read wrongly
+            return t["K7_cut"].format(seg=seg, gain=-loss)
+        off = OFF_TRACK[lang] if left else ""
         return t["K7"].format(seg=seg, loss=loss, off=off)
     return t["K8"].format(seg=seg, ratio=_num(row, "time_cv_ratio"))

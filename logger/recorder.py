@@ -112,6 +112,10 @@ class Recorder:
             self._thread.join(timeout=5)
         self.flush()
         self._writer.close()
+        try:        # conditions at the end as well: at the start the simulator may not have filled them in yet
+            self.meta["settings_at_end"] = self.source.settings()
+        except Exception:
+            pass
         self._write_meta(finished=True)
         return self.meta
 
