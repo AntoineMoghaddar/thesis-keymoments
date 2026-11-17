@@ -180,7 +180,16 @@ def test_experiments_and_expert_review(study):
         relevant = (kind != "none") != (rng.random() < 0.1)          # ten percent disagreement
         review.save_response(paths.review, r.expert_id, r.window_id, relevant, kind == shown,
                              None if kind == shown else kind, True, "", 30.0)
+    # The first answer is stored at once and is not replaced by a second attempt.
+    first = assignments.iloc[0]
+    review.save_relevance(paths.review, first.expert_id, first.window_id, True, 5.0)
+    stored = review.load_responses(paths.review).set_index(["expert_id", "window_id"]).loc[(first.expert_id, first.window_id)]
+    assert pd.notna(stored["type_correct"]) and stored["seconds"] == 30.0
+    # A package that has answers is not silently replaced.
+    with pytest.raises(RuntimeError):
+        review.build_package(cfg)
     result = review.analyse(cfg)
+    assert 0 <= result["precision_model_selection"] <= 1 and result["n_model_selection"] > 0
     assert result["experts"] == 3 and result["shared_windows_complete"] == 8
     assert -1 <= result["fleiss_kappa_relevance"] <= 1
     assert len(result["labelling_functions"]) == 8

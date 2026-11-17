@@ -63,7 +63,8 @@ def main(argv=None) -> None:
     p.add_argument("--out", required=True, help="empty folder for the public dataset")
     p.add_argument("--key", required=True, help="path of the key file (university storage, outside the dataset folder)")
     sub.add_parser("track", help="track edges from the survey recordings along both edges")
-    sub.add_parser("review-package", help="select windows for the experts and create access codes")
+    p = sub.add_parser("review-package", help="select windows for the experts and create access codes")
+    p.add_argument("--force", action="store_true", help="overwrite a package that already has expert answers")
     sub.add_parser("sq4", help="analyse the expert responses")
     p = sub.add_parser("advise", help="print the selected moments of one session with advice")
     p.add_argument("session")
@@ -128,7 +129,7 @@ def main(argv=None) -> None:
         from . import track
         print(track.survey(cfg).to_string(index=False))
     if args.command == "review-package":
-        print(review.build_package(cfg))
+        print(review.build_package(cfg, force=args.force))
         print(f"Access codes: {paths.review / 'access_codes_PRIVATE.csv'} (keep this file to yourself)")
     if args.command == "sq4":
         out = review.analyse(cfg)

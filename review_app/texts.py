@@ -24,6 +24,8 @@ T = {
                   "nl": "Tijdverlies per bocht en ronde (s, bocht plus het rechte stuk erna)"},
     "sess_lap": {"en": "Lap", "nl": "Ronde"},
     "sess_corner": {"en": "Corner", "nl": "Bocht"},
+    "sess_locked": {"en": "You have started the second part. Your choices for the sessions can no longer be changed.",
+                    "nl": "Je bent aan het tweede deel begonnen. Je keuzes voor de sessies kun je niet meer wijzigen."},
     "sess_inspect": {"en": "Look at a corner in detail", "nl": "Een bocht in detail bekijken"},
     "sess_all_laps": {"en": "All laps of the session", "nl": "Alle rondes van de sessie"},
     "sess_highlight": {"en": "Highlight lap", "nl": "Ronde uitlichten"},
@@ -50,7 +52,7 @@ T = {
 
 The review has two parts. In the first part (Sessions) you look at a few complete sessions and choose the corners you would discuss with the driver. In the second part (Review) you judge single segments.
 
-In the second part you will see a series of segments. A segment is one corner, or one straight, of one recorded lap in Assetto Corsa Competizione (GT3). For each segment you see the speed, throttle, brake and steering of that lap, together with the fastest lap of the same driver on the same circuit as a reference.
+In the second part you will see a series of segments. A segment is one corner, or one straight, of one recorded lap in Assetto Corsa Competizione (GT3). For each segment you see the driven line from above, the position across the road, and the speed, throttle, brake and steering of that lap, together with the fastest lap of the same driver on the same circuit as a reference.
 
 For each segment you answer three questions:
 
@@ -64,7 +66,7 @@ You can add a short comment. There are no right or wrong answers: your own judge
 
 - The session takes about one hour. Your answers are saved after every segment, so you can stop and continue later with the same code.
 - You do not see who the driver is, and the drivers do not see your answers.
-- You can go back to a previous segment and change your answer.
+- You can go back to a previous segment and change your answers to questions 2 and 3. The answer to question 1 is final once given.
 - You can stop at any time without giving a reason.
 """,
         "nl": """
@@ -72,7 +74,7 @@ You can add a short comment. There are no right or wrong answers: your own judge
 
 De beoordeling heeft twee delen. In het eerste deel (Sessies) bekijk je een paar volledige sessies en kies je de bochten die je met de coureur zou bespreken. In het tweede deel (Beoordelen) beoordeel je losse segmenten.
 
-In het tweede deel krijg je een reeks segmenten te zien. Een segment is een bocht, of een recht stuk, van een opgenomen ronde in Assetto Corsa Competizione (GT3). Per segment zie je de snelheid, het gas, de rem en het stuur van die ronde, samen met de snelste ronde van dezelfde coureur op hetzelfde circuit als referentie.
+In het tweede deel krijg je een reeks segmenten te zien. Een segment is een bocht, of een recht stuk, van een opgenomen ronde in Assetto Corsa Competizione (GT3). Per segment zie je de gereden lijn van bovenaf, de positie op de baan, en de snelheid, het gas, de rem en het stuur van die ronde, samen met de snelste ronde van dezelfde coureur op hetzelfde circuit als referentie.
 
 Bij elk segment beantwoord je drie vragen:
 
@@ -86,7 +88,7 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
 
 - De sessie duurt ongeveer een uur. Je antwoorden worden na elk segment opgeslagen, dus je kunt stoppen en later met dezelfde code verdergaan.
 - Je ziet niet wie de coureur is, en de coureurs zien jouw antwoorden niet.
-- Je kunt terug naar een vorig segment om je antwoord te wijzigen.
+- Je kunt terug naar een vorig segment om je antwoorden op vraag 2 en 3 te wijzigen. Het antwoord op vraag 1 ligt vast zodra je het hebt gegeven.
 - Je kunt op elk moment stoppen zonder opgaaf van reden.
 """},
     "schema_title": {"en": "Moment types and advice categories", "nl": "Typen momenten en adviescategorieën"},

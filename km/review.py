@@ -134,7 +134,7 @@ def _traces(windows: pd.DataFrame, data: np.ndarray, lengths: dict, cfg: dict, f
     return pd.concat(parts, ignore_index=True)
 
 
-def build_package(cfg: dict, seed: int = 0) -> dict:
+def build_package(cfg: dict, seed: int = 0, force: bool = False) -> dict:
     """Select the windows for the experts and write everything the review tool needs.
 
     Windows come from three groups: selected by the model, selected by the time-loss baseline
@@ -142,6 +142,9 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
     window to its group is stored in a separate file for the researcher.
     """
     paths = Paths.from_config(cfg).ensure()
+    if has_answers(paths.review) and not force:
+        raise RuntimeError(f"{paths.review} already holds expert answers. A new package would no longer match them. "
+                           "Move the folder away first, or pass force to overwrite the package.")
     rv = cfg["review"]
     rng = np.random.default_rng(seed)
     windows = load_windows(cfg)
@@ -326,6 +329,25 @@ def save_response(review_dir: Path, expert_id: str, window_id: str, relevant: bo
         con.execute("INSERT OR REPLACE INTO responses VALUES (?,?,?,?,?,?,?,?,?)",
                     (expert_id, window_id, int(bool(relevant)), as_int(type_correct), correct_type or None,
                      as_int(advice_ok), comment.strip(), float(seconds), time.strftime("%Y-%m-%dT%H:%M:%S")))
+
+
+def save_relevance(review_dir: Path, expert_id: str, window_id: str, relevant: bool, seconds: float) -> None:
+    """Store the first answer on a window as soon as it is given. An existing answer is never replaced.
+
+    The assigned type and advice are shown after this answer. Storing it at once means that an expert who
+    leaves the page and comes back cannot give the first answer again with that knowledge.
+    """
+    with connect(review_dir) as con:
+        con.execute("INSERT OR IGNORE INTO responses (expert_id, window_id, relevant, seconds, saved_at) VALUES (?,?,?,?,?)",
+                    (expert_id, window_id, int(bool(relevant)), float(seconds), time.strftime("%Y-%m-%dT%H:%M:%S")))
+
+
+def has_answers(review_dir: Path) -> bool:
+    """True when at least one expert answer is stored for the package in this folder."""
+    if not (Path(review_dir) / "responses.db").exists():
+        return False
+    with connect(review_dir) as con:
+        return any(con.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() for table in ("responses", "session_picks"))
 
 
 def save_session_picks(review_dir: Path, expert_id: str, session_key: str, picks: list[dict], seconds: float) -> None:
@@ -526,8 +548,16 @@ def analyse(cfg: dict) -> dict:
         out["relevant_share_all_windows"] = float(np.average(joined["expert_label"], weights=joined["weight"]))
         random_part = joined[joined["drawn_from"] == "random"]
         out["relevant_share_random_draw"] = float(random_part["expert_label"].mean()) if len(random_part) else np.nan
-    out["precision_model_selection"] = float(joined.loc[joined["in_model"], "expert_label"].mean())
-    out["precision_baseline_selection"] = float(joined.loc[joined["in_baseline"], "expert_label"].mean())
+    # The windows of a selection were not all drawn with the same probability (a window selected by both the
+    # model and the baseline is drawn as a model window), so the precision is weighted by the inverse probability.
+    def precision(mask: pd.Series) -> float:
+        part = joined[mask]
+        if part.empty:
+            return float("nan")
+        return float(np.average(part["expert_label"], weights=part["weight"])) if "weight" in part else float(part["expert_label"].mean())
+    out["precision_model_selection"] = precision(joined["in_model"])
+    out["precision_baseline_selection"] = precision(joined["in_baseline"])
+    out["n_model_selection"], out["n_baseline_selection"] = int(joined["in_model"].sum()), int(joined["in_baseline"].sum())
 
     # Precision of every labelling function against the reference labels.
     windows = load_windows(cfg)
