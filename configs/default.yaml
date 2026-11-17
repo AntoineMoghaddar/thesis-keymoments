@@ -107,6 +107,10 @@ review:
   trace_points: 240       # samples per plotted trace
   context: 0.35           # track shown before and after the segment, as a share of its length
 
+track:
+  # Independent source for the track width, per ACC track id (configs/reference_tracks). Only used as a check.
+  reference: {monza: Monza, hungaroring: Budapest}
+
 export:
   exclude_experts: []       # expert ids (E01, ...) who did not consent to publication of their judgements
   questionnaire_items: []   # questionnaire answers published with the dataset; free text is never published

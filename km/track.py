@@ -7,6 +7,8 @@ half a car width outside the driven line, because the recorded position is the c
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -43,6 +45,23 @@ def edges_from_lines(one: np.ndarray, other: np.ndarray) -> pd.DataFrame:
                          "width_m": width + 2 * CAR_HALF_WIDTH_M})
 
 
+def reference(cfg: dict, circuit: str) -> dict:
+    """Width and length of the circuit according to an independent source, when one is configured.
+
+    The source describes the real circuit and has its own coordinates, so only summary values are
+    compared with the survey: they tell whether the measured width is plausible.
+    """
+    name = cfg.get("track", {}).get("reference", {}).get(circuit)
+    path = Path(__file__).resolve().parent.parent / "configs" / "reference_tracks" / f"{name}.csv"
+    if not name or not path.exists():
+        return {}
+    ref = pd.read_csv(path, comment="#", header=None, names=["x", "y", "right", "left"])
+    width = ref["right"] + ref["left"]
+    x, y = np.append(ref["x"], ref["x"].iloc[0]), np.append(ref["y"], ref["y"].iloc[0])
+    return dict(ref_width_median=round(float(width.median()), 1), ref_width_min=round(float(width.min()), 1),
+                ref_width_max=round(float(width.max()), 1), ref_length_m=round(float(np.hypot(np.diff(x), np.diff(y)).sum())))
+
+
 def survey(cfg: dict) -> pd.DataFrame:
     """Build the edges of every circuit that has two survey recordings and store them."""
     paths = Paths.from_config(cfg).ensure()
@@ -52,7 +71,7 @@ def survey(cfg: dict) -> pd.DataFrame:
     for circuit in sorted({m["circuit"] for m in sessions}):
         mine = sorted((m for m in sessions if m["circuit"] == circuit), key=lambda m: m["session_id"])
         if len(mine) < 2:
-            summary.append(dict(circuit=circuit, status="needs two recordings, one per edge"))
+            summary.append(dict(circuit=circuit, status="needs two recordings, one per edge", **reference(cfg, circuit)))
             continue
         lines = [_lines(pd.read_parquet(m["path"]), cfg["preprocess"]["grid_points"]) for m in mine[-2:]]
         if min(len(x) for x in lines) == 0:
@@ -63,7 +82,7 @@ def survey(cfg: dict) -> pd.DataFrame:
         w = edges["width_m"]
         summary.append(dict(circuit=circuit, status="ok", laps_first=len(lines[0]), laps_second=len(lines[1]),
                             width_median=round(float(w.median()), 1), width_min=round(float(w.min()), 1),
-                            width_max=round(float(w.max()), 1)))
+                            width_max=round(float(w.max()), 1), **reference(cfg, circuit)))
     if parts:
         pd.concat(parts, ignore_index=True).to_parquet(paths.prepared / "track_edges.parquet", index=False)
     return pd.DataFrame(summary)
