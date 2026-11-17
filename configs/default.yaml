@@ -11,6 +11,7 @@ study:
   sessions_per_circuit: 3
   laps_per_session: 15
   experience_levels: [none, moderate, high]
+  survey_pseudonym: X01           # recordings along the track edges, made by the researcher (km track)
 
 logger:
   hz: 60                  # polling frequency of the shared memory

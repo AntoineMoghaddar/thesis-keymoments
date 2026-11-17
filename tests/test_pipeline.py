@@ -399,3 +399,24 @@ def test_advice_for_a_cut_corner_does_not_speak_of_lost_time():
     row = {"segment_name": "Turn 1", "time_loss": -8.4, "off_track": 1.0}
     assert "8.40 s faster" in advice_text(row, "K7", "en") and "sneller" in advice_text(row, "K7", "nl")
     assert "lost" in advice_text({"segment_name": "Turn 1", "time_loss": 1.2, "off_track": 1.0}, "K7", "en")
+
+
+def test_track_edges_from_survey_laps():
+    from km import track
+    angle = np.linspace(0, 2 * np.pi, 400, endpoint=False)
+
+    def ring(radius: float, laps: int) -> np.ndarray:
+        return np.stack([np.column_stack([radius * np.cos(angle), radius * np.sin(angle)])] * laps)
+
+    edges = track.edges_from_lines(ring(104.0, 2), ring(96.0, 3)).assign(circuit="ring")
+    assert edges["width_m"].round(3).eq(8.0 + 2 * track.CAR_HALF_WIDTH_M).all()
+
+    # Laps on a line 2 m inside the outer edge: the outline is the surveyed track, not the band of the laps.
+    data = np.zeros((3, 400, len(preprocess.CHANNELS)), dtype=np.float32)
+    data[:, :, preprocess.CH["x"]], data[:, :, preprocess.CH["z"]] = 103.0 * np.cos(angle), 103.0 * np.sin(angle)
+    data[:, :, preprocess.CH["steer"]] = 0.1
+    outline, geometry = review.track_outline(pd.DataFrame({"circuit": ["ring"] * 3}), data, edges)
+    assert set(outline["source"]) == {"survey"}
+    assert np.allclose(outline["band_hi"] - outline["band_lo"], 10.0, atol=0.05)
+    _, _, lateral = review._position(data[0], np.arange(400), geometry["ring"])
+    assert np.allclose(np.abs(lateral), 3.0, atol=0.05)       # 103 m against a middle line at 100 m

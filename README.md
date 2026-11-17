@@ -99,6 +99,7 @@ km --config configs/local.yaml sq3              data requirements (laps, drivers
 km --config configs/local.yaml reference        three kinds of reference lap compared
 km --config configs/local.yaml generalisation   unseen driver, unseen circuit, unseen experience level
 km --config configs/local.yaml ablation         feature groups, labelling functions, aggregation
+km --config configs/local.yaml track            track edges from the survey recordings (pseudonym X01)
 km --config configs/local.yaml review-package   selects windows for the experts, creates access codes
 streamlit run review_app/app.py                 the review tool
 km --config configs/local.yaml sq4              agreement, reference labels
@@ -156,9 +157,12 @@ are settings in `configs/default.yaml`.
 - **Thresholds and unseen drivers.** The thresholds are fitted on the training drivers of each fold only
   (`labelling.fit_on: train`), so that a held-out driver is evaluated as a new driver would be.
 - **Top view in the review tool.** The driven line is drawn from the recorded car position, next to the reference
-  lap, together with the position across the road along the corner. ACC does not publish the track edges, so the
-  grey band is the road used by all recorded laps (1st to 99th percentile, plus half a car width) and not the
-  official track limits. The ground plane of ACC is mirrored; the tool flips it so that a right turn is drawn as one.
+  lap, together with the position across the road along the corner. ACC does not publish the track edges. They are
+  measured once per circuit: record two sessions under the pseudonym `X01` in Hotlap, the first driven slowly along
+  the left white line and the second along the right one (two laps each), and run `km track`. The edge is placed half
+  a car width outside the driven line. Recordings of `X01` are left out of the analysis. Without a survey the grey
+  band is the road used by all recorded laps. The ground plane of ACC is mirrored; the tool flips it so that a right
+  turn is drawn as one.
 - **Order of the expert tasks.** The review tool only opens the single segments after the session task
   has been completed.
 - **Evaluation target.** Expert labels where they exist, weak labels otherwise. Results against weak labels
@@ -244,7 +248,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 35 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 36 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

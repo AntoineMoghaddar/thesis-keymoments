@@ -143,6 +143,8 @@ def prepare(cfg: dict) -> pd.DataFrame:
 
     rows, arrays, log = [], [], []
     for meta in list_sessions(paths.raw):
+        if meta["driver"] == cfg["study"].get("survey_pseudonym"):
+            continue                                # laps along the track edges are not driving data
         frame = unique_laps(pd.read_parquet(meta["path"]))
         for lap in split_laps(frame, cfg):
             base = dict(session_id=meta["session_id"], driver=meta["driver"], circuit=meta["circuit"],
