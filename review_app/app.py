@@ -254,7 +254,8 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
         return
     order = mine["window_id"].tolist()
     responses = review.load_responses(folder)
-    done = responses[responses["expert_id"] == user["expert_id"]].set_index("window_id")
+    started = responses[responses["expert_id"] == user["expert_id"]].set_index("window_id")
+    done = started[started["type_correct"].notna()]      # the first answer alone does not complete a window
     open_positions = [k for k, w in enumerate(order) if w not in done.index]
     if "position" not in st.session_state:
         st.session_state["position"] = open_positions[0] if open_positions else len(order) - 1
@@ -288,15 +289,12 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
     st.plotly_chart(trace_figure(trace, lang), width="stretch")
     st.caption(t("segment_area", lang))
 
-    previous = done.loc[window_id] if window_id in done.index else None
+    previous = started.loc[window_id] if window_id in started.index else None
     yes_no = [t("yes", lang), t("no", lang)]
 
     # Step 1: would the expert discuss this segment? The assigned type and advice are only shown after
-    # this answer, and the answer cannot be changed afterwards, so that it is not influenced by them.
-    state_key = f"relevant_{window_id}"
-    if previous is not None:
-        st.session_state[state_key] = bool(previous["relevant"])
-    if state_key not in st.session_state:
+    # this answer. It is stored at once and cannot be changed, so that it is not influenced by them.
+    if previous is None:
         with st.form(f"step1_{window_id}"):
             first = st.radio(t("q1", lang), yes_no, index=None, horizontal=True)
             st.caption(t("q1_hint", lang))
@@ -304,11 +302,12 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
                 if first is None:
                     st.error(t("need_q1", lang))
                 else:
-                    st.session_state[state_key] = first == yes_no[0]
+                    review.save_relevance(folder, user["expert_id"], window_id, first == yes_no[0],
+                                          time.time() - st.session_state["timer"])
                     st.rerun()
         _navigation(pos, order, open_positions, lang)
         return
-    relevant_answer = st.session_state[state_key]
+    relevant_answer = bool(previous["relevant"])
     st.markdown(f"**{t('q1', lang)}** {yes_no[0] if relevant_answer else yes_no[1]}")
 
     st.markdown(f"**{t('assigned_type', lang)}:** {kind} {TYPE_NAMES[lang][kind]}")
@@ -459,6 +458,10 @@ def page_sessions(folder: Path, user: dict, lang: str, budget: int) -> None:
     st.plotly_chart(corner_figure(corner_trace, highlight, lang), width="stretch")
 
     earlier = picks[(picks["session_key"] == session) & (picks["rank"] > 0)].set_index("rank")
+    answered = review.load_responses(folder)
+    locked = bool((answered["expert_id"] == user["expert_id"]).any())     # the second task shows what the system assigned
+    if locked:
+        st.info(t("sess_locked", lang))
     corner_options = ["-"] + corners["segment"].tolist()
     type_options = ["-"] + TYPES
     with st.form(f"session_{session}"):
@@ -475,7 +478,7 @@ def page_sessions(folder: Path, user: dict, lang: str, budget: int) -> None:
                                key=f"type_{session}_{k}")
             note = c.text_input(t("comment", lang), value="" if old is None else old["comment"] or "", key=f"note_{session}_{k}")
             chosen.append((seg, kind, note))
-        if st.form_submit_button(t("save_next", lang), type="primary"):
+        if st.form_submit_button(t("save_next", lang), type="primary", disabled=locked):
             selected = [(s_, k_, n_) for s_, k_, n_ in chosen if s_ != "-"]
             if any(k_ == "-" for _, k_, _ in selected):
                 st.error(t("sess_need_type", lang))
@@ -505,15 +508,16 @@ def page_dashboard(folder: Path, user: dict, lang: str) -> None:
     if user["role"] == "admin":
         st.subheader(t("dash_all", lang))
         total = assignments.groupby("expert_id").size().rename("assigned")
-        done = responses.groupby("expert_id").agg(reviewed=("window_id", "size"), relevant=("relevant", "mean"),
+        complete = responses[responses["type_correct"].notna()]
+        done = complete.groupby("expert_id").agg(reviewed=("window_id", "size"), relevant=("relevant", "mean"),
                                                   median_seconds=("seconds", "median"))
         picks = review.load_session_picks(folder)
         sessions = picks.groupby("expert_id")["session_key"].nunique().rename("sessions_done")
-        st.dataframe(pd.concat([total, done, sessions], axis=1).fillna(0).round(2), width="stretch")
+        st.dataframe(pd.concat([total, done, sessions], axis=1).astype(float).fillna(0).round(2), width="stretch")
         st.download_button(t("dash_download", lang), responses.to_csv(index=False).encode("utf-8"), "responses.csv")
         st.download_button("session_picks.csv", picks.to_csv(index=False).encode("utf-8"), "session_picks.csv")
         return
-    mine = responses[responses["expert_id"] == user["expert_id"]]
+    mine = responses[(responses["expert_id"] == user["expert_id"]) & responses["type_correct"].notna()]
     n_total = int((assignments["expert_id"] == user["expert_id"]).sum())
     st.subheader(t("dash_mine", lang))
     st.progress(len(mine) / max(n_total, 1), text=f"{t('dash_done', lang)}: {len(mine)} / {n_total}")
