@@ -160,7 +160,8 @@ are settings in `configs/default.yaml`.
   lap, together with the position across the road along the corner. ACC does not publish the track edges. They are
   measured once per circuit: record two sessions under the pseudonym `X01` in Hotlap, the first driven slowly along
   the left white line and the second along the right one (two laps each), and run `km track`. The edge is placed half
-  a car width outside the driven line. Recordings of `X01` are left out of the analysis. Without a survey the grey
+  a car width outside the driven line. `km track` prints the measured width next to the width from the TUM racetrack database
+  (`configs/reference_tracks/`, LGPL-3.0) as an independent check. Recordings of `X01` are left out of the analysis. Without a survey the grey
   band is the road used by all recorded laps. The ground plane of ACC is mirrored; the tool flips it so that a right
   turn is drawn as one.
 - **Order of the expert tasks.** The review tool only opens the single segments after the session task
@@ -248,7 +249,7 @@ files contain no pseudonyms, no experience levels and no information on why a se
 
 ## What has been verified
 
-- 36 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
+- 37 tests pass: lap selection, resampling, segmentation, labelling functions, the label model, the three
   references, splits by driver, circuit and level, metrics and tests, the experiments SQ1 to SQ4 with simulated
   experts, the session task, the dataset export (including a check that no study identifier is left in the
   public copy), the recorder, the transfer and the questionnaire.

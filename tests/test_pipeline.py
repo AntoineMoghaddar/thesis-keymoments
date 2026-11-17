@@ -420,3 +420,13 @@ def test_track_edges_from_survey_laps():
     assert np.allclose(outline["band_hi"] - outline["band_lo"], 10.0, atol=0.05)
     _, _, lateral = review._position(data[0], np.arange(400), geometry["ring"])
     assert np.allclose(np.abs(lateral), 3.0, atol=0.05)       # 103 m against a middle line at 100 m
+
+
+def test_reference_track_widths():
+    from km import track
+    from km.config import load_config
+    cfg = load_config(None)
+    monza = track.reference(cfg, "monza")
+    assert 5000 < monza["ref_length_m"] < 6500 and 8 < monza["ref_width_median"] < 16
+    assert track.reference(cfg, "hungaroring")["ref_length_m"] > 4000
+    assert track.reference(cfg, "synth_a") == {}
