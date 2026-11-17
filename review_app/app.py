@@ -83,6 +83,104 @@ def trace_figure(trace: pd.DataFrame, lang: str) -> go.Figure:
     return fig
 
 
+@st.cache_data(show_spinner=False)
+def load_track(folder: str) -> pd.DataFrame | None:
+    path = Path(folder) / "track.parquet"
+    return pd.read_parquet(path) if path.exists() else None
+
+
+def _brake_point(line: pd.DataFrame, brake: str, x: str, y: str) -> tuple[float, float] | None:
+    """Position at which the brake is first applied in the shown part of the lap."""
+    on = line[line[brake] > 0.05]
+    if not len(on) or on.index[0] == line.index[0]:      # already braking where the shown part starts
+        return None
+    return float(on[x].iloc[0]), float(on[y].iloc[0])
+
+
+def line_figure(track: pd.DataFrame | None, circuit: str, lap: pd.DataFrame, ref: pd.DataFrame,
+                others: list[pd.DataFrame], lap_name: str, lang: str) -> go.Figure:
+    """Top view of the driven line in one corner, next to the reference lap.
+
+    `lap` and `ref` hold the columns px, py, speed, brake and idx. `lap` may hold in_segment, in
+    which case the part outside the segment is drawn lighter. `others` are drawn thin and grey.
+    """
+    fig = go.Figure()
+    if track is not None and len(lap):
+        part = track[(track["circuit"] == circuit) & track["idx"].between(lap["idx"].min(), lap["idx"].max())]
+        if len(part):
+            fig.add_trace(go.Scatter(
+                x=list(part["left_x"]) + list(part["right_x"][::-1]), y=list(part["left_y"]) + list(part["right_y"][::-1]),
+                fill="toself", fillcolor="rgba(120,120,120,0.16)", line=dict(color="rgba(120,120,120,0.55)", width=1),
+                name=t("line_road", lang), hoverinfo="skip"))
+    for k, g in enumerate(others):
+        fig.add_trace(go.Scatter(x=g["px"], y=g["py"], name=t("sess_all_laps", lang), legendgroup="all", showlegend=k == 0,
+                                 hoverinfo="skip", opacity=0.45, line=dict(color="#8fa3b8", width=1)))
+    hover = "%{customdata:.0f} km/h<extra>%{fullData.name}</extra>"
+    fig.add_trace(go.Scatter(x=ref["px"], y=ref["py"], name=t("reference", lang), customdata=ref["speed"],
+                             hovertemplate=hover, line=dict(color=REF_COLOUR, width=2.5, dash="dash")))
+    if "in_segment" in lap and not lap["in_segment"].all():
+        fig.add_trace(go.Scatter(x=lap["px"], y=lap["py"], showlegend=False, hoverinfo="skip", opacity=0.4,
+                                 line=dict(color=LAP_COLOUR, width=2)))
+        inside = lap[lap["in_segment"]]
+    else:
+        inside = lap
+    fig.add_trace(go.Scatter(x=inside["px"], y=inside["py"], name=lap_name, customdata=inside["speed"],
+                             hovertemplate=hover, line=dict(color=LAP_COLOUR, width=3)))
+    points = [(_brake_point(ref, "brake", "px", "py"), REF_COLOUR, "diamond-open", t("line_brake_ref", lang)),
+              (_brake_point(lap, "brake", "px", "py"), LAP_COLOUR, "diamond", t("line_brake_lap", lang))]
+    for point, colour, symbol, name in points:
+        if point is not None:
+            fig.add_trace(go.Scatter(x=[point[0]], y=[point[1]], mode="markers", name=name, hoverinfo="name",
+                                     marker=dict(color=colour, size=12, symbol=symbol, line=dict(width=2, color=colour))))
+    if len(lap) > 1:
+        slow = lap.loc[lap["speed"].idxmin()]
+        fig.add_trace(go.Scatter(x=[slow["px"]], y=[slow["py"]], mode="markers+text", name=t("line_slowest", lang),
+                                 text=[f"{slow['speed']:.0f} km/h"], textposition="top center", hoverinfo="name",
+                                 marker=dict(color=LAP_COLOUR, size=9, symbol="circle")))
+        step = max(len(lap) // 12, 1)
+        fig.add_annotation(x=float(lap["px"].iloc[step]), y=float(lap["py"].iloc[step]),
+                           ax=float(lap["px"].iloc[0]), ay=float(lap["py"].iloc[0]), xref="x", yref="y", axref="x", ayref="y",
+                           showarrow=True, arrowhead=3, arrowsize=1.6, arrowwidth=2, arrowcolor="#4d4d4d")
+        fig.add_annotation(x=float(lap["px"].iloc[0]), y=float(lap["py"].iloc[0]), text=t("line_direction", lang),
+                           showarrow=False, yshift=14, font=dict(size=11, color="#4d4d4d"))
+    if len(lap):
+        x0, y0 = float(min(lap["px"].min(), ref["px"].min())), float(min(lap["py"].min(), ref["py"].min())) - 12
+        fig.add_shape(type="line", x0=x0, x1=x0 + 50, y0=y0, y1=y0, line=dict(color="#4d4d4d", width=3))
+        fig.add_annotation(x=x0 + 25, y=y0, text="50 m", showarrow=False, yshift=-12, font=dict(size=11, color="#4d4d4d"))
+    plain = dict(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_xaxes(**plain)
+    fig.update_yaxes(scaleanchor="x", scaleratio=1, **plain)
+    fig.update_layout(height=460, margin=dict(l=10, r=10, t=30, b=10), plot_bgcolor="white",
+                      legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0))
+    return fig
+
+
+def position_figure(track: pd.DataFrame | None, circuit: str, lap: pd.DataFrame, ref: pd.DataFrame,
+                    others: list[pd.DataFrame], lap_name: str, lang: str) -> go.Figure:
+    """Position across the road along the corner. Differences of a metre are not visible in the top view."""
+    fig = go.Figure()
+    if track is not None and len(lap):
+        band = lap[["idx", "dist_m"]].merge(track[track["circuit"] == circuit][["idx", "band_lo", "band_hi"]], on="idx")
+        fig.add_trace(go.Scatter(x=list(band["dist_m"]) + list(band["dist_m"][::-1]),
+                                 y=list(band["band_hi"]) + list(band["band_lo"][::-1]), fill="toself",
+                                 fillcolor="rgba(120,120,120,0.16)", line=dict(color="rgba(120,120,120,0.55)", width=1),
+                                 name=t("line_road", lang), hoverinfo="skip"))
+    for k, g in enumerate(others):
+        fig.add_trace(go.Scatter(x=g["dist_m"], y=g["lateral"], name=t("sess_all_laps", lang), legendgroup="all",
+                                 showlegend=k == 0, hoverinfo="skip", opacity=0.45, line=dict(color="#8fa3b8", width=1)))
+    fig.add_trace(go.Scatter(x=ref["dist_m"], y=ref["lateral"], name=t("reference", lang),
+                             line=dict(color=REF_COLOUR, width=2.5, dash="dash")))
+    fig.add_trace(go.Scatter(x=lap["dist_m"], y=lap["lateral"], name=lap_name, line=dict(color=LAP_COLOUR, width=2.5)))
+    if "in_segment" in lap and lap["in_segment"].any() and not lap["in_segment"].all():
+        inside = lap.loc[lap["in_segment"], "dist_m"]
+        fig.add_vrect(x0=float(inside.min()), x1=float(inside.max()), fillcolor="#1f4e79", opacity=0.07, line_width=0)
+    fig.update_xaxes(title_text=t("distance", lang))
+    fig.update_yaxes(title_text=t("line_lateral", lang), title_font_size=11, zeroline=True, zerolinecolor="#bbbbbb")
+    fig.update_layout(height=270, margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified",
+                      legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0))
+    return fig
+
+
 def page_login(folder: Path, lang: str) -> None:
     st.title(t("app_title", lang))
     st.write(t("login_intro", lang))
@@ -165,7 +263,18 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
     c1.metric(t("seg_time", lang), f"{item['seg_time']:.2f} s")
     c2.metric(t("ref_time", lang), f"{item['ref_seg_time']:.2f} s")
     c3.metric(t("difference", lang), f"{item['time_loss']:+.2f} s")
-    st.plotly_chart(trace_figure(traces[traces["window_id"] == window_id], lang), width="stretch")
+    trace = traces[traces["window_id"] == window_id]
+    if "px" in trace:
+        ref_line = trace.rename(columns={"px": "_x", "py": "_y", "speed": "_s", "brake": "_b"}).rename(
+            columns={"ref_px": "px", "ref_py": "py", "ref_speed": "speed", "ref_brake": "brake"})
+        ref_line = ref_line.rename(columns={"lateral": "_l"}).rename(columns={"ref_lateral": "lateral"})
+        st.plotly_chart(line_figure(load_track(str(folder)), item["circuit"], trace, ref_line, [], t("this_lap", lang), lang),
+                        width="stretch")
+        st.caption(t("line_caption", lang))
+        st.plotly_chart(position_figure(load_track(str(folder)), item["circuit"], trace, ref_line, [], t("this_lap", lang), lang),
+                        width="stretch")
+        st.caption(t("line_lateral_caption", lang))
+    st.plotly_chart(trace_figure(trace, lang), width="stretch")
     st.caption(t("segment_area", lang))
 
     previous = done.loc[window_id] if window_id in done.index else None
@@ -325,8 +434,18 @@ def page_sessions(folder: Path, user: dict, lang: str, budget: int) -> None:
     laps = sorted(data["lap_no"].unique())
     worst = int(data[data["segment"] == corner].sort_values("total_loss").iloc[-1]["lap_no"])
     highlight = c2.selectbox(t("sess_highlight", lang), laps, index=laps.index(worst), key=f"lap_{session}_{corner}")
-    st.plotly_chart(corner_figure(traces[(traces["session_key"] == session) & (traces["segment"] == corner)], highlight, lang),
-                    width="stretch")
+    corner_trace = traces[(traces["session_key"] == session) & (traces["segment"] == corner)]
+    if "px" in corner_trace:
+        others = [g for n, g in corner_trace.groupby("lap_no") if n not in (0, highlight)]
+        st.plotly_chart(line_figure(load_track(str(folder)), data["circuit"].iloc[0], corner_trace[corner_trace["lap_no"] == highlight],
+                                    corner_trace[corner_trace["lap_no"] == 0], others, f"{t('sess_lap', lang)} {highlight}", lang),
+                        width="stretch")
+        st.caption(t("line_caption", lang))
+        st.plotly_chart(position_figure(load_track(str(folder)), data["circuit"].iloc[0], corner_trace[corner_trace["lap_no"] == highlight],
+                                        corner_trace[corner_trace["lap_no"] == 0], others, f"{t('sess_lap', lang)} {highlight}", lang),
+                        width="stretch")
+        st.caption(t("line_lateral_caption", lang))
+    st.plotly_chart(corner_figure(corner_trace, highlight, lang), width="stretch")
 
     earlier = picks[(picks["session_key"] == session) & (picks["rank"] > 0)].set_index("rank")
     corner_options = ["-"] + corners["segment"].tolist()
