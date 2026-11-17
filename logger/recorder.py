@@ -41,7 +41,7 @@ class Recorder:
         self._t0 = None
         self._first_lap = None
         self.error: str | None = None
-        self.stats = dict(samples=0, laps_completed=0, last_lap_ms=0, status=0, speed_kmh=0.0, in_pit=0,
+        self.stats = dict(samples=0, laps_completed=0, full_laps=0, last_lap_ms=0, status=0, speed_kmh=0.0, in_pit=0,
                           valid_lap=1, elapsed=0.0, rate=0.0)
         self._write_meta(finished=False)
 
@@ -61,6 +61,8 @@ class Recorder:
             s = self.stats
             s["samples"] += 1
             s["laps_completed"] = sample["lap"] - self._first_lap
+            # The lap in which the recording started is never complete, so it is not counted as a full lap.
+            s["full_laps"] = max(s["laps_completed"] - 1, 0)
             s["last_lap_ms"], s["speed_kmh"] = sample["last_time_ms"], sample["speed_kmh"]
             s["in_pit"], s["valid_lap"] = sample["in_pit"] or sample["in_pit_lane"], sample["valid_lap"]
             s["elapsed"] = sample["t"]
@@ -110,7 +112,7 @@ class Recorder:
         meta = dict(self.meta, finished=finished)
         if finished:
             meta.update(ended_at=time.strftime("%Y-%m-%dT%H:%M:%S"), n_samples=self.stats["samples"],
-                        laps_completed=self.stats["laps_completed"], duration_s=round(self.stats["elapsed"], 1),
+                        laps_completed=self.stats["laps_completed"], full_laps=self.stats["full_laps"], duration_s=round(self.stats["elapsed"], 1),
                         mean_rate_hz=round(self.stats["rate"], 1), error=self.error)
             self.meta = meta
         self.meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")

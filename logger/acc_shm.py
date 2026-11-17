@@ -127,8 +127,10 @@ def sample_from(physics: Physics, graphics: Graphics, t: float) -> dict:
         "wslip_fl": ws[0], "wslip_fr": ws[1], "wslip_rl": ws[2], "wslip_rr": ws[3],
         "sratio_fl": sr[0], "sratio_fr": sr[1], "sratio_rl": sr[2], "sratio_rr": sr[3],
         "bpress_fl": bp[0], "bpress_fr": bp[1], "bpress_rl": bp[2], "bpress_rr": bp[3],
-        "yaw_rate": physics.localAngularVel[1], "tc_on": float(physics.tcInAction),
-        "abs_on": float(physics.absInAction), "tyres_out": physics.numberOfTyresOut,
+        # The documentation lists two fields each for "TC in action" and "ABS in action". In a test
+        # recording the integer fields stayed at zero, so the larger of the two is stored.
+        "yaw_rate": physics.localAngularVel[1], "tc_on": max(abs(float(physics.tc)), float(physics.tcInAction)),
+        "abs_on": max(abs(float(physics.abs)), float(physics.absInAction)), "tyres_out": physics.numberOfTyresOut,
         "in_pit": graphics.isInPit, "in_pit_lane": graphics.isInPitLane, "valid_lap": graphics.isValidLap,
         "cur_time_ms": graphics.iCurrentTime, "last_time_ms": graphics.iLastTime, "fuel": physics.fuel,
         "x": x, "y": y, "z": z,

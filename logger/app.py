@@ -313,7 +313,7 @@ class LoggerApp:
         meta = self.recorder.stop()
         error = self.recorder.error
         self.recorder = None
-        text = tr("saved", lang, laps=meta["laps_completed"], samples=meta["n_samples"], rate=meta["mean_rate_hz"])
+        text = tr("saved", lang, laps=meta["full_laps"], samples=meta["n_samples"], rate=meta["mean_rate_hz"])
         self.message.set(f"{tr('rec_error', lang)}{error} {text}" if error else text)
         self.update_buttons()
         self.refresh_participant()
@@ -349,7 +349,7 @@ class LoggerApp:
         if rec:
             s = rec.stats
             target = self.cfg["study"]["laps_per_session"]
-            sv["laps"].set(f"{s['laps_completed']}  ({tr('target', lang)} {target})")
+            sv["laps"].set(f"{s['full_laps']}  ({tr('target', lang)} {target})")
             sv["last_lap"].set(format_lap(s["last_lap_ms"]))
             sv["samples"].set(f"{s['samples']:,}")
             sv["rate"].set(f"{s['rate']:.1f} Hz")

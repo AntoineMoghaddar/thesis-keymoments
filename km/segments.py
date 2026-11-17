@@ -46,7 +46,14 @@ def detect(profile: np.ndarray, cfg: dict) -> list[dict]:
             end += 1
         start = max(a - margin, out[-1]["end_idx"] if out else 0)
         end = min(end + margin, limit, n)
-        out.append(dict(id=f"T{k + 1}", name=f"Turn {k + 1}", kind="corner", start_idx=start, end_idx=end))
+        if out and start - out[-1]["end_idx"] <= margin:
+            # The previous corner runs straight into this one (a chicane, or a long corner in which
+            # the driver briefly straightens the wheel): treat them as one corner.
+            out[-1]["end_idx"] = end
+            continue
+        out.append(dict(kind="corner", start_idx=start, end_idx=end))
+    for k, corner in enumerate(out):
+        corner.update(id=f"T{k + 1}", name=f"Turn {k + 1}")
     return out
 
 

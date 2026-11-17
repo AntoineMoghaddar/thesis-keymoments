@@ -28,7 +28,9 @@ def test_sample_has_all_columns():
     graphics.carCoordinates[0][0] = 5.0
     sample = acc_shm.sample_from(physics, graphics, 1.5)
     assert set(sample) == set(RAW_COLUMNS)
-    assert sample["speed_kmh"] == 123.0 and sample["lap"] == 4 and sample["x"] == 5.0
+    assert sample["speed_kmh"] == 123.0 and sample["lap"] == 4 and sample["x"] == 5.0 and sample["tc_on"] == 0.0
+    physics.tc = 0.4                                                  # the float field is used when the integer is zero
+    assert acc_shm.sample_from(physics, graphics, 1.5)["tc_on"] == __import__("pytest").approx(0.4)
 
 
 def test_text_decoding():
@@ -60,7 +62,7 @@ def test_recorder_skips_duplicates_and_pauses(tmp_path):
     assert stored == [True, False, False, True, True]
     frame = pd.read_parquet(rec.data_path)
     assert frame["packet_id"].tolist() == [1, 3, 4] and frame["t"].iloc[0] == 0
-    assert meta["laps_completed"] == 1 and meta["finished"] and meta["session_number"] == 2
+    assert meta["laps_completed"] == 1 and meta["full_laps"] == 0 and meta["finished"] and meta["session_number"] == 2
     assert json.loads(rec.meta_path.read_text())["n_samples"] == 3
     assert rec.data_path.parent == tmp_path / "raw" / "D01" / "monza"
 
