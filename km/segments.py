@@ -77,6 +77,10 @@ def propose(laps: pd.DataFrame, data: np.ndarray, circuit: str, cfg: dict) -> li
     profile[:, CH["steer"]] = np.median(np.abs(data[refs][:, :, CH["steer"]]), axis=0)
     n = data.shape[1]
     corners = detect(profile, cfg)
+    names = cfg["segments"].get("names", {}).get(circuit, [])
+    if len(names) == len(corners):               # the usual names only fit when the same corners were found
+        for corner, name in zip(corners, names):
+            corner["name"] = name
     return with_straights(corners, n, int(cfg["segments"]["min_length"] * n))
 
 

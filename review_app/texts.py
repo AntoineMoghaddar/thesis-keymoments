@@ -15,8 +15,8 @@ T = {
     "page_dash": {"en": "Dashboard", "nl": "Dashboard"},
     "page_sessions": {"en": "Sessions", "nl": "Sessies"},
     "sess_intro": {
-        "en": "You see one complete session of one driver: every corner of every lap, compared with the reference lap. Choose at most {b} corners that you would discuss with this driver, the most important one first, and say for each which type of moment it is. If you would discuss nothing, save without choosing a corner.",
-        "nl": "Je ziet een volledige sessie van een coureur: elke bocht van elke ronde, vergeleken met de referentieronde. Kies maximaal {b} bochten die je met deze coureur zou bespreken, de belangrijkste eerst, en geef per bocht aan om welk type moment het gaat. Als je niets zou bespreken, sla dan op zonder een bocht te kiezen."},
+        "en": "You see one complete session of one driver: every corner of every lap, compared with the reference lap. Choose at most {b} corners that you would discuss with this driver, the most important one first, and say for each which type of moment it is. If you would discuss nothing, save without choosing a corner. Laps are numbered from the first lap after the warm-up laps.",
+        "nl": "Je ziet een volledige sessie van een coureur: elke bocht van elke ronde, vergeleken met de referentieronde. Kies maximaal {b} bochten die je met deze coureur zou bespreken, de belangrijkste eerst, en geef per bocht aan om welk type moment het gaat. Als je niets zou bespreken, sla dan op zonder een bocht te kiezen. De rondes zijn genummerd vanaf de eerste ronde na de opwarmrondes."},
     "sessions_first": {"en": "Please complete the sessions first (menu: Sessions). The single segments follow after that.",
                        "nl": "Rond eerst de sessies af (menu: Sessies). Daarna volgen de losse segmenten."},
     "sess_progress": {"en": "Session {i} of {n}", "nl": "Sessie {i} van {n}"},
@@ -54,11 +54,11 @@ The review has two parts. In the first part (Sessions) you look at a few complet
 
 In the second part you will see a series of segments. A segment is one corner, or one straight, of one recorded lap in Assetto Corsa Competizione (GT3). For each segment you see the driven line from above, the position across the road, and the speed, throttle, brake and steering of that lap, together with the fastest lap of the same driver on the same circuit as a reference.
 
-For each segment you answer three questions:
+For each segment you answer one question, and two more when the answer is yes:
 
 1. Would you discuss this segment with the driver in a debrief?
-2. After your first answer you see the moment type that was assigned to the segment. Is it correct? If not, which type fits?
-3. An advice category has been assigned to the segment. Is it suitable?
+2. If yes: you then see the moment type that was assigned to the segment. Is it correct? If not, which type fits?
+3. If yes: an advice category has been assigned to the segment. Is it suitable?
 
 You can add a short comment. There are no right or wrong answers: your own judgement as a coach or driver is what is asked for. Some segments contain nothing remarkable, and that is intended.
 
@@ -76,11 +76,11 @@ De beoordeling heeft twee delen. In het eerste deel (Sessies) bekijk je een paar
 
 In het tweede deel krijg je een reeks segmenten te zien. Een segment is een bocht, of een recht stuk, van een opgenomen ronde in Assetto Corsa Competizione (GT3). Per segment zie je de gereden lijn van bovenaf, de positie op de baan, en de snelheid, het gas, de rem en het stuur van die ronde, samen met de snelste ronde van dezelfde coureur op hetzelfde circuit als referentie.
 
-Bij elk segment beantwoord je drie vragen:
+Bij elk segment beantwoord je een vraag, en nog twee als het antwoord ja is:
 
 1. Zou je dit segment met de coureur bespreken in een debrief?
-2. Na je eerste antwoord zie je het type moment dat aan het segment is toegekend. Klopt dat? Zo niet, welk type past wel?
-3. Aan het segment is een adviescategorie toegekend. Is die passend?
+2. Bij ja: je ziet daarna het type moment dat aan het segment is toegekend. Klopt dat? Zo niet, welk type past wel?
+3. Bij ja: aan het segment is een adviescategorie toegekend. Is die passend?
 
 Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: het gaat om je eigen oordeel als coach of coureur. Sommige segmenten bevatten niets opvallends, en dat is de bedoeling.
 
@@ -112,8 +112,8 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
     "saved": {"en": "Saved.", "nl": "Opgeslagen."},
     "save": {"en": "Save", "nl": "Opslaan"},
     "progress": {"en": "Segment {i} of {n}", "nl": "Segment {i} van {n}"},
-    "all_done": {"en": "You have reviewed all segments. Thank you. You can still change answers with the buttons below.",
-                 "nl": "Je hebt alle segmenten beoordeeld. Dank je wel. Met de knoppen hieronder kun je antwoorden nog wijzigen."},
+    "all_done": {"en": "You have reviewed all segments. Thank you. You can still change your answers to questions 2 and 3 with the buttons below.",
+                 "nl": "Je hebt alle segmenten beoordeeld. Dank je wel. Met de knoppen hieronder kun je je antwoorden op vraag 2 en 3 nog wijzigen."},
     "this_lap": {"en": "This lap", "nl": "Deze ronde"},
     "line_road": {"en": "Road used by all drivers", "nl": "Door alle coureurs gebruikte baan"},
     "line_track": {"en": "Track", "nl": "Baan"},
@@ -156,9 +156,11 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
     "assigned_advice": {"en": "Assigned advice category", "nl": "Toegekende adviescategorie"},
     "q1": {"en": "1. Would you discuss this segment with the driver in a debrief?",
            "nl": "1. Zou je dit segment met de coureur bespreken in een debrief?"},
-    "q1_hint": {"en": "After this answer you see the type of moment and the advice that were assigned to the segment. This first answer cannot be changed afterwards.",
-                "nl": "Na dit antwoord zie je het type moment en het advies dat aan het segment is toegekend. Dit eerste antwoord kun je daarna niet meer wijzigen."},
+    "q1_hint": {"en": "If you answer yes, you then see the type of moment and the advice that were assigned to the segment. This first answer cannot be changed afterwards.",
+                "nl": "Als je ja antwoordt, zie je daarna het type moment en het advies dat aan het segment is toegekend. Dit eerste antwoord kun je daarna niet meer wijzigen."},
     "continue": {"en": "Continue", "nl": "Verder"},
+    "q1_no_more": {"en": "You would not discuss this segment, so there are no further questions on it.",
+                   "nl": "Je zou dit segment niet bespreken, dus er zijn geen verdere vragen over."},
     "need_q1": {"en": "Please answer the question first.", "nl": "Beantwoord eerst de vraag."},
     "q2": {"en": "2. Is the assigned moment type correct?", "nl": "2. Klopt het toegekende type moment?"},
     "q2b": {"en": "If not: which type fits?", "nl": "Zo niet: welk type past wel?"},

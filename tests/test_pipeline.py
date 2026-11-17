@@ -185,12 +185,18 @@ def test_experiments_and_expert_review(study):
     review.save_relevance(paths.review, first.expert_id, first.window_id, True, 5.0)
     stored = review.load_responses(paths.review).set_index(["expert_id", "window_id"]).loc[(first.expert_id, first.window_id)]
     assert pd.notna(stored["type_correct"]) and stored["seconds"] == 30.0
+    # 'No' on the first question completes a window, 'yes' leaves the questions on type and advice open.
+    answers = pd.DataFrame({"relevant": [0, 1, 1], "type_correct": [np.nan, np.nan, 1.0]})
+    assert list(review.complete(answers)) == [True, False, True]
     # A package that has answers is not silently replaced.
     with pytest.raises(RuntimeError):
         review.build_package(cfg)
     result = review.analyse(cfg)
     assert 0 <= result["precision_model_selection"] <= 1 and result["n_model_selection"] > 0
     assert result["experts"] == 3 and result["shared_windows_complete"] == 8
+    assert result["ties_counted_as_not_relevant"] <= result["windows_with_several_experts"]
+    shown = pd.read_parquet(paths.review / "session_items.parquet")
+    assert (shown["total_loss"] == 0).any()                          # the reference lap is shown in its session
     assert -1 <= result["fleiss_kappa_relevance"] <= 1
     assert len(result["labelling_functions"]) == 8
     labels = pd.read_parquet(paths.review / "expert_labels.parquet")
@@ -439,3 +445,14 @@ def test_reference_track_widths():
     assert 5000 < monza["ref_length_m"] < 6500 and 8 < monza["ref_width_median"] < 16
     assert track.reference(cfg, "hungaroring")["ref_length_m"] > 4000
     assert track.reference(cfg, "synth_a") == {}
+
+
+def test_usual_corner_names_only_when_the_count_matches(study):
+    cfg, _ = study["cfg"], study
+    laps, data, _ = preprocess.load_prepared(cfg)
+    circuit = laps["circuit"].iloc[0]
+    found = [s for s in segments.propose(laps, data, circuit, cfg) if s["kind"] == "corner"]
+    named = dict(cfg, segments=dict(cfg["segments"], names={circuit: [f"Corner {k}" for k in range(len(found))]}))
+    assert [s["name"] for s in segments.propose(laps, data, circuit, named) if s["kind"] == "corner"][0] == "Corner 0"
+    wrong = dict(cfg, segments=dict(cfg["segments"], names={circuit: ["only one"]}))
+    assert [s["name"] for s in segments.propose(laps, data, circuit, wrong) if s["kind"] == "corner"][0] == "Turn 1"
