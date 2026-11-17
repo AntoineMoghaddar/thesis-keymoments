@@ -62,6 +62,7 @@ def main(argv=None) -> None:
     p = sub.add_parser("export-dataset", help="write an anonymised copy of the dataset for publication")
     p.add_argument("--out", required=True, help="empty folder for the public dataset")
     p.add_argument("--key", required=True, help="path of the key file (university storage, outside the dataset folder)")
+    sub.add_parser("track", help="track edges from the survey recordings along both edges")
     sub.add_parser("review-package", help="select windows for the experts and create access codes")
     sub.add_parser("sq4", help="analyse the expert responses")
     p = sub.add_parser("advise", help="print the selected moments of one session with advice")
@@ -123,6 +124,9 @@ def main(argv=None) -> None:
         print(f"{len(figures.make_figures(cfg))} figures written to {paths.results / 'figures'}")
     if args.command == "export-dataset":
         print(export.export_dataset(cfg, args.out, args.key))
+    if args.command == "track":
+        from . import track
+        print(track.survey(cfg).to_string(index=False))
     if args.command == "review-package":
         print(review.build_package(cfg))
         print(f"Access codes: {paths.review / 'access_codes_PRIVATE.csv'} (keep this file to yourself)")

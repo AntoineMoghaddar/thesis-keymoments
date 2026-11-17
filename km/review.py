@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score
 
-from . import labelling, moments
+from . import labelling, moments, track
 from .advice import advice_text
 from .config import Paths
 from .evaluation import top_b
@@ -19,15 +19,16 @@ from .features import load_windows
 from .preprocess import CH, load_prepared
 
 TRACE_COLUMNS = ["speed", "gas", "brake", "steer"]
-CAR_HALF_WIDTH_M = 1.0      # the recorded position is the centre of the car
+CAR_HALF_WIDTH_M = track.CAR_HALF_WIDTH_M      # the recorded position is the centre of the car
 
 
-def track_outline(laps: pd.DataFrame, data: np.ndarray) -> tuple[pd.DataFrame, dict]:
+def track_outline(laps: pd.DataFrame, data: np.ndarray, edges: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
     """Outline per circuit for the top view, built from the driven lines.
 
-    The simulator does not publish the track edges. The outline is therefore the band between
-    the 1st and 99th percentile of the lateral position of all laps, widened by half a car
-    width. It shows the part of the road that was used, not the official track limits.
+    When the circuit has surveyed edges (km/track.py) these are the outline. Otherwise the outline
+    is the band between the 1st and 99th percentile of the lateral position of all laps, widened
+    by half a car width: the part of the road that was used, not the track itself. The column
+    `source` says which of the two it is.
 
     The simulator's ground plane is mirrored when x is drawn to the right and z upwards. The
     second return value holds, per circuit, the factor for z (1 or -1) with which steering to
@@ -39,6 +40,10 @@ def track_outline(laps: pd.DataFrame, data: np.ndarray) -> tuple[pd.DataFrame, d
         rows = np.where(circuit_of == circuit)[0]
         x, z = data[rows][:, :, CH["x"]], data[rows][:, :, CH["z"]]
         cx, cz = np.median(x, axis=0), np.median(z, axis=0)
+        mine = edges[edges["circuit"] == circuit].sort_values("idx") if edges is not None else []
+        surveyed = len(mine) == len(cx)
+        if surveyed:                               # the middle of the track instead of the middle of the laps
+            cx, cz = (mine["a_x"].to_numpy() + mine["b_x"].to_numpy()) / 2, (mine["a_z"].to_numpy() + mine["b_z"].to_numpy()) / 2
         tx, tz = np.gradient(cx), np.gradient(cz)
         turn = np.gradient(np.unwrap(np.arctan2(tz, tx)))
         steer = np.median(data[rows][:, :, CH["steer"]], axis=0)
@@ -48,16 +53,21 @@ def track_outline(laps: pd.DataFrame, data: np.ndarray) -> tuple[pd.DataFrame, d
         norm[norm == 0] = 1.0
         nx, nz = -tz / norm, tx / norm
         lateral = (x - cx) * nx + (z - cz) * nz
-        lo = np.percentile(lateral, 1, axis=0) - CAR_HALF_WIDTH_M
-        hi = np.percentile(lateral, 99, axis=0) + CAR_HALF_WIDTH_M
+        if surveyed:
+            side_a = (mine["a_x"].to_numpy() - cx) * nx + (mine["a_z"].to_numpy() - cz) * nz
+            side_b = (mine["b_x"].to_numpy() - cx) * nx + (mine["b_z"].to_numpy() - cz) * nz
+            lo, hi = np.minimum(side_a, side_b), np.maximum(side_a, side_b)
+        else:
+            lo = np.percentile(lateral, 1, axis=0) - CAR_HALF_WIDTH_M
+            hi = np.percentile(lateral, 99, axis=0) + CAR_HALF_WIDTH_M
         # Seen from above after mirroring, the normal points to the left when sign is 1 and to the right otherwise.
-        edges = np.sort(np.stack([sign * lo, sign * hi]), axis=0)
+        band = np.sort(np.stack([sign * lo, sign * hi]), axis=0)
         flip[circuit] = dict(sign=sign, cx=cx, cz=cz, nx=nx, nz=nz)
         parts.append(pd.DataFrame({
             "circuit": circuit, "idx": np.arange(len(cx)),
             "left_x": cx + nx * hi, "left_y": sign * (cz + nz * hi),
             "right_x": cx + nx * lo, "right_y": sign * (cz + nz * lo),
-            "band_lo": edges[0], "band_hi": edges[1]}))
+            "band_lo": band[0], "band_hi": band[1], "source": "survey" if surveyed else "laps"}))
     return pd.concat(parts, ignore_index=True), flip
 
 
@@ -198,8 +208,8 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
         paths.review / "key_PRIVATE.parquet", index=False)
     assignments.to_parquet(paths.review / "assignments.parquet", index=False)
     laps, _, _ = load_prepared(cfg)
-    outline, flip = track_outline(laps, data)
-    outline.astype({c: "float32" for c in outline.columns if c not in ("circuit", "idx")}).to_parquet(
+    outline, flip = track_outline(laps, data, track.load_edges(cfg))
+    outline.astype({c: "float32" for c in outline.columns if c not in ("circuit", "idx", "source")}).to_parquet(
         paths.review / "track.parquet", index=False)
     _traces(items, data, lengths, cfg, flip).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():

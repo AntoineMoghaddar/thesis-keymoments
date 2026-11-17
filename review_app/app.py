@@ -89,6 +89,17 @@ def load_track(folder: str) -> pd.DataFrame | None:
     return pd.read_parquet(path) if path.exists() else None
 
 
+def surveyed(track: pd.DataFrame | None, circuit: str) -> bool:
+    """True when the outline of the circuit comes from the survey of the track edges."""
+    if track is None or "source" not in track:
+        return False
+    return bool((track.loc[track["circuit"] == circuit, "source"] == "survey").any())
+
+
+def road_name(track: pd.DataFrame | None, circuit: str, lang: str) -> str:
+    return t("line_track" if surveyed(track, circuit) else "line_road", lang)
+
+
 def _brake_point(line: pd.DataFrame, brake: str, x: str, y: str) -> tuple[float, float] | None:
     """Position at which the brake is first applied in the shown part of the lap."""
     on = line[line[brake] > 0.05]
@@ -111,7 +122,7 @@ def line_figure(track: pd.DataFrame | None, circuit: str, lap: pd.DataFrame, ref
             fig.add_trace(go.Scatter(
                 x=list(part["left_x"]) + list(part["right_x"][::-1]), y=list(part["left_y"]) + list(part["right_y"][::-1]),
                 fill="toself", fillcolor="rgba(120,120,120,0.16)", line=dict(color="rgba(120,120,120,0.55)", width=1),
-                name=t("line_road", lang), hoverinfo="skip"))
+                name=road_name(track, circuit, lang), hoverinfo="skip"))
     for k, g in enumerate(others):
         fig.add_trace(go.Scatter(x=g["px"], y=g["py"], name=t("sess_all_laps", lang), legendgroup="all", showlegend=k == 0,
                                  hoverinfo="skip", opacity=0.45, line=dict(color="#8fa3b8", width=1)))
@@ -164,7 +175,7 @@ def position_figure(track: pd.DataFrame | None, circuit: str, lap: pd.DataFrame,
         fig.add_trace(go.Scatter(x=list(band["dist_m"]) + list(band["dist_m"][::-1]),
                                  y=list(band["band_hi"]) + list(band["band_lo"][::-1]), fill="toself",
                                  fillcolor="rgba(120,120,120,0.16)", line=dict(color="rgba(120,120,120,0.55)", width=1),
-                                 name=t("line_road", lang), hoverinfo="skip"))
+                                 name=road_name(track, circuit, lang), hoverinfo="skip"))
     for k, g in enumerate(others):
         fig.add_trace(go.Scatter(x=g["dist_m"], y=g["lateral"], name=t("sess_all_laps", lang), legendgroup="all",
                                  showlegend=k == 0, hoverinfo="skip", opacity=0.45, line=dict(color="#8fa3b8", width=1)))
@@ -270,7 +281,7 @@ def page_review(folder: Path, user: dict, lang: str) -> None:
         ref_line = ref_line.rename(columns={"lateral": "_l"}).rename(columns={"ref_lateral": "lateral"})
         st.plotly_chart(line_figure(load_track(str(folder)), item["circuit"], trace, ref_line, [], t("this_lap", lang), lang),
                         width="stretch")
-        st.caption(t("line_caption", lang))
+        st.caption(t("line_caption_track" if surveyed(load_track(str(folder)), item["circuit"]) else "line_caption", lang))
         st.plotly_chart(position_figure(load_track(str(folder)), item["circuit"], trace, ref_line, [], t("this_lap", lang), lang),
                         width="stretch")
         st.caption(t("line_lateral_caption", lang))
@@ -440,7 +451,7 @@ def page_sessions(folder: Path, user: dict, lang: str, budget: int) -> None:
         st.plotly_chart(line_figure(load_track(str(folder)), data["circuit"].iloc[0], corner_trace[corner_trace["lap_no"] == highlight],
                                     corner_trace[corner_trace["lap_no"] == 0], others, f"{t('sess_lap', lang)} {highlight}", lang),
                         width="stretch")
-        st.caption(t("line_caption", lang))
+        st.caption(t("line_caption_track" if surveyed(load_track(str(folder)), data["circuit"].iloc[0]) else "line_caption", lang))
         st.plotly_chart(position_figure(load_track(str(folder)), data["circuit"].iloc[0], corner_trace[corner_trace["lap_no"] == highlight],
                                         corner_trace[corner_trace["lap_no"] == 0], others, f"{t('sess_lap', lang)} {highlight}", lang),
                         width="stretch")
