@@ -19,6 +19,53 @@ from .features import load_windows
 from .preprocess import CH, load_prepared
 
 TRACE_COLUMNS = ["speed", "gas", "brake", "steer"]
+CAR_HALF_WIDTH_M = 1.0      # the recorded position is the centre of the car
+
+
+def track_outline(laps: pd.DataFrame, data: np.ndarray) -> tuple[pd.DataFrame, dict]:
+    """Outline per circuit for the top view, built from the driven lines.
+
+    The simulator does not publish the track edges. The outline is therefore the band between
+    the 1st and 99th percentile of the lateral position of all laps, widened by half a car
+    width. It shows the part of the road that was used, not the official track limits.
+
+    The simulator's ground plane is mirrored when x is drawn to the right and z upwards. The
+    second return value holds, per circuit, the factor for z (1 or -1) with which steering to
+    the right is drawn as a turn to the right, together with the middle line and its normal.
+    """
+    parts, flip = [], {}
+    circuit_of = laps["circuit"].to_numpy()
+    for circuit in sorted(set(circuit_of)):
+        rows = np.where(circuit_of == circuit)[0]
+        x, z = data[rows][:, :, CH["x"]], data[rows][:, :, CH["z"]]
+        cx, cz = np.median(x, axis=0), np.median(z, axis=0)
+        tx, tz = np.gradient(cx), np.gradient(cz)
+        turn = np.gradient(np.unwrap(np.arctan2(tz, tx)))
+        steer = np.median(data[rows][:, :, CH["steer"]], axis=0)
+        ok = np.isfinite(turn) & np.isfinite(steer)
+        sign = -1.0 if ok.sum() > 2 and np.corrcoef(steer[ok], turn[ok])[0, 1] > 0 else 1.0
+        norm = np.hypot(tx, tz)
+        norm[norm == 0] = 1.0
+        nx, nz = -tz / norm, tx / norm
+        lateral = (x - cx) * nx + (z - cz) * nz
+        lo = np.percentile(lateral, 1, axis=0) - CAR_HALF_WIDTH_M
+        hi = np.percentile(lateral, 99, axis=0) + CAR_HALF_WIDTH_M
+        # Seen from above after mirroring, the normal points to the left when sign is 1 and to the right otherwise.
+        edges = np.sort(np.stack([sign * lo, sign * hi]), axis=0)
+        flip[circuit] = dict(sign=sign, cx=cx, cz=cz, nx=nx, nz=nz)
+        parts.append(pd.DataFrame({
+            "circuit": circuit, "idx": np.arange(len(cx)),
+            "left_x": cx + nx * hi, "left_y": sign * (cz + nz * hi),
+            "right_x": cx + nx * lo, "right_y": sign * (cz + nz * lo),
+            "band_lo": edges[0], "band_hi": edges[1]}))
+    return pd.concat(parts, ignore_index=True), flip
+
+
+def _position(lap: np.ndarray, idx: np.ndarray, g: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Top-view coordinates of a lap and its distance to the left of the middle of the used road (m)."""
+    x, z = lap[idx, CH["x"]], lap[idx, CH["z"]]
+    lateral = g["sign"] * ((x - g["cx"][idx]) * g["nx"][idx] + (z - g["cz"][idx]) * g["nz"][idx])
+    return x, g["sign"] * z, lateral
 
 
 # ---------------------------------------------------------------- access codes
@@ -56,7 +103,7 @@ def check_code(review_dir: Path, code: str) -> dict | None:
 
 # ---------------------------------------------------------------- review package
 
-def _traces(windows: pd.DataFrame, data: np.ndarray, lengths: dict, cfg: dict) -> pd.DataFrame:
+def _traces(windows: pd.DataFrame, data: np.ndarray, lengths: dict, cfg: dict, flip: dict) -> pd.DataFrame:
     """Signals of the lap and its reference around each window, for plotting."""
     points, context = cfg["review"]["trace_points"], cfg["review"]["context"]
     n = data.shape[1]
@@ -66,8 +113,10 @@ def _traces(windows: pd.DataFrame, data: np.ndarray, lengths: dict, cfg: dict) -
         idx = np.linspace(max(r.start_idx - pad, 0), min(r.end_idx + pad, n) - 1, points).astype(int)
         lap, ref = data[r.lap_row][idx], data[r.ref_row][idx]
         ds = lengths[r.circuit] / n
-        frame = pd.DataFrame({"window_id": r.window_id, "dist_m": (idx - r.start_idx) * ds,
+        frame = pd.DataFrame({"window_id": r.window_id, "dist_m": (idx - r.start_idx) * ds, "idx": idx,
                               "in_segment": (idx >= r.start_idx) & (idx < r.end_idx)})
+        frame["px"], frame["py"], frame["lateral"] = _position(data[r.lap_row], idx, flip[r.circuit])
+        frame["ref_px"], frame["ref_py"], frame["ref_lateral"] = _position(data[r.ref_row], idx, flip[r.circuit])
         for c in TRACE_COLUMNS:
             frame[c], frame[f"ref_{c}"] = lap[:, CH[c]], ref[:, CH[c]]
         frame["delta_t"] = (lap[:, CH["lap_t"]] - lap[0, CH["lap_t"]]) - (ref[:, CH["lap_t"]] - ref[0, CH["lap_t"]])
@@ -148,15 +197,19 @@ def build_package(cfg: dict, seed: int = 0) -> dict:
            "score_xgb", "weak_label", "weak_type", "inclusion_probability", "weight"]].to_parquet(
         paths.review / "key_PRIVATE.parquet", index=False)
     assignments.to_parquet(paths.review / "assignments.parquet", index=False)
-    _traces(items, data, lengths, cfg).to_parquet(paths.review / "traces.parquet", index=False)
+    laps, _, _ = load_prepared(cfg)
+    outline, flip = track_outline(laps, data)
+    outline.astype({c: "float32" for c in outline.columns if c not in ("circuit", "idx")}).to_parquet(
+        paths.review / "track.parquet", index=False)
+    _traces(items, data, lengths, cfg, flip).to_parquet(paths.review / "traces.parquet", index=False)
     if not (paths.review / "access.csv").exists():
         make_codes(paths.review, rv["n_experts"])
-    session_info = _session_task(frame, data, lengths, experts, cfg, rng, paths)
+    session_info = _session_task(frame, data, lengths, experts, cfg, rng, paths, flip)
     return {"sessions": session_info, "drawn_from": pd.Series(drawn_from).value_counts().to_dict(), "windows": len(items), "shared": len(shared), "per_expert": assignments.groupby("expert_id").size().to_dict(),
             "groups": items["group"].value_counts().to_dict()}
 
 
-def _session_task(frame, data, lengths, experts, cfg, rng, paths) -> dict:
+def _session_task(frame, data, lengths, experts, cfg, rng, paths, flip) -> dict:
     """Second task for the experts: choose the moments of a whole session themselves.
 
     The expert sees every corner of every lap of a session and picks at most B corners to
@@ -188,12 +241,18 @@ def _session_task(frame, data, lengths, experts, cfg, rng, paths) -> dict:
     parts = []
     for r in corners.itertuples():
         idx = np.linspace(r.start_idx, r.end_idx - 1, points).astype(int)
-        base = dict(session_key=r.session_key, segment=r.segment, dist_m=(idx - r.start_idx) * lengths[r.circuit] / n)
-        lap = pd.DataFrame(dict(base, lap_no=r.lap_no, **{c: data[r.lap_row][idx, CH[c]] for c in TRACE_COLUMNS}))
-        parts.append(lap)
+        base = dict(session_key=r.session_key, segment=r.segment, dist_m=(idx - r.start_idx) * lengths[r.circuit] / n,
+                    idx=idx)
+
+        def one(row: int, lap_no: int) -> pd.DataFrame:
+            signals = {c: data[row][idx, CH[c]] for c in TRACE_COLUMNS}
+            px, py, lateral = _position(data[row], idx, flip[r.circuit])
+            return pd.DataFrame(dict(base, lap_no=lap_no, **signals, px=px, py=py, lateral=lateral))
+
+        parts.append(one(r.lap_row, r.lap_no))
         if r.lap_no == 1:                        # the reference trace is stored once per corner, as lap 0
-            parts.append(pd.DataFrame(dict(base, lap_no=0, **{c: data[r.ref_row][idx, CH[c]] for c in TRACE_COLUMNS})))
-    pd.concat(parts, ignore_index=True).astype({c: "float32" for c in TRACE_COLUMNS}).to_parquet(
+            parts.append(one(r.ref_row, 0))
+    pd.concat(parts, ignore_index=True).astype({c: "float32" for c in TRACE_COLUMNS + ["px", "py", "lateral"]}).to_parquet(
         paths.review / "session_traces.parquet", index=False)
     pd.DataFrame(assignments).to_parquet(paths.review / "session_assignments.parquet", index=False)
 

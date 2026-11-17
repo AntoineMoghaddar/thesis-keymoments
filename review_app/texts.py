@@ -113,6 +113,24 @@ Je kunt een korte opmerking toevoegen. Er zijn geen goede of foute antwoorden: h
     "all_done": {"en": "You have reviewed all segments. Thank you. You can still change answers with the buttons below.",
                  "nl": "Je hebt alle segmenten beoordeeld. Dank je wel. Met de knoppen hieronder kun je antwoorden nog wijzigen."},
     "this_lap": {"en": "This lap", "nl": "Deze ronde"},
+    "line_road": {"en": "Road used by all drivers", "nl": "Door alle coureurs gebruikte baan"},
+    "line_brake_lap": {"en": "Brake point, this lap", "nl": "Rempunt, deze ronde"},
+    "line_brake_ref": {"en": "Brake point, reference", "nl": "Rempunt, referentie"},
+    "line_slowest": {"en": "Lowest speed", "nl": "Laagste snelheid"},
+    "line_direction": {"en": "direction of travel", "nl": "rijrichting"},
+    "line_lateral": {"en": "Position on the road (m)", "nl": "Positie op de baan (m)"},
+    "line_lateral_caption": {"en": "Position across the road along the corner: metres to the left (+) or right (-) of the middle "
+                                   "of the used road, seen in the direction of travel. A difference in line of one or two "
+                                   "metres shows here and hardly in the top view.",
+                             "nl": "Positie over de breedte van de baan langs de bocht: meters links (+) of rechts (-) van het "
+                                   "midden van de gebruikte baan, gezien in de rijrichting. Een verschil in lijn van een of twee "
+                                   "meter zie je hier en nauwelijks in het bovenaanzicht."},
+    "line_caption": {"en": "Top view of the driven line. The grey band is the part of the "
+                           "road that the drivers in this study used, not the official track limits. A diamond marks where "
+                           "the brake is first applied. Hover over a line for the speed.",
+                     "nl": "Bovenaanzicht van de gereden lijn. De grijze band is het deel van "
+                           "de baan dat de coureurs in dit onderzoek hebben gebruikt, niet de officiële baanlimieten. Een ruit "
+                           "geeft aan waar de rem voor het eerst wordt ingetrapt. Beweeg over een lijn voor de snelheid."},
     "reference": {"en": "Reference lap", "nl": "Referentieronde"},
     "speed": {"en": "Speed (km/h)", "nl": "Snelheid (km/u)"},
     "gas": {"en": "Throttle (%)", "nl": "Gas (%)"},

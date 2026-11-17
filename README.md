@@ -155,6 +155,10 @@ are settings in `configs/default.yaml`.
   median segment of that driver, and only for the laps that were slower than the session median.
 - **Thresholds and unseen drivers.** The thresholds are fitted on the training drivers of each fold only
   (`labelling.fit_on: train`), so that a held-out driver is evaluated as a new driver would be.
+- **Top view in the review tool.** The driven line is drawn from the recorded car position, next to the reference
+  lap, together with the position across the road along the corner. ACC does not publish the track edges, so the
+  grey band is the road used by all recorded laps (1st to 99th percentile, plus half a car width) and not the
+  official track limits. The ground plane of ACC is mirrored; the tool flips it so that a right turn is drawn as one.
 - **Order of the expert tasks.** The review tool only opens the single segments after the session task
   has been completed.
 - **Evaluation target.** Expert labels where they exist, weak labels otherwise. Results against weak labels

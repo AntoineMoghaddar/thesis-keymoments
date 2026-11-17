@@ -157,6 +157,14 @@ def test_experiments_and_expert_review(study):
     assert key["inclusion_probability"].between(0, 1).all() and (key["weight"] >= 1).all()
     assert key.loc[key["in_model"], "weight"].mean() < key.loc[key["group"] == "neither", "weight"].mean()
     items = pd.read_parquet(paths.review / "items.parquet")
+    track = pd.read_parquet(paths.review / "track.parquet")
+    traces = pd.read_parquet(paths.review / "traces.parquet")
+    assert {"px", "py", "ref_px", "ref_py", "idx", "lateral", "ref_lateral"} <= set(traces.columns)
+    inside = traces.merge(items[["window_id", "circuit"]], on="window_id").merge(track, on=["circuit", "idx"])
+    assert ((inside["lateral"] >= inside["band_lo"]) & (inside["lateral"] <= inside["band_hi"])).mean() > 0.95
+    assert set(track["circuit"]) == set(items["circuit"])
+    width = np.hypot(track["left_x"] - track["right_x"], track["left_y"] - track["right_y"])
+    assert width.min() >= 2 * review.CAR_HALF_WIDTH_M - 1e-3      # never narrower than the car itself
     assert not {"group", "driver", "level", "session_id", "in_model", "score_xgb"} & set(items.columns)   # blind
     codes = pd.read_csv(paths.review / "access_codes_PRIVATE.csv")
     assert review.check_code(paths.review, codes["code"][0].lower())["expert_id"] == "E01"
