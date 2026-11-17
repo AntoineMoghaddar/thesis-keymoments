@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6",
     "streamlit>=1.50",
     "plotly>=5.20",
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
